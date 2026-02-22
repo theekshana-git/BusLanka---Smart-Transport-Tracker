@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "1030684162200",
+    "firebase_url": "https://buslanka-ca425-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "buslanka-ca425",
+    "storage_bucket": "buslanka-ca425.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1030684162200:android:35839ee814ea605ee478ed",
+        "android_client_info": {
+          "package_name": "com.example.bus_lanka"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAvp_Bg0WFBVqbHMu5AWmNg9hreyzfu7xA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1030684162200:android:7d732a81de8d3b73e478ed",
+        "android_client_info": {
+          "package_name": "com.example.buslanka"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAvp_Bg0WFBVqbHMu5AWmNg9hreyzfu7xA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
