@@ -3,7 +3,7 @@ import 'dart:async';
 import 'role.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({Key? key}) : super(key: key);
+  const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -21,13 +21,12 @@ class _SplashScreenState extends State<SplashScreen> {
   // Timer logic for the splash screen
   void _navigateToNextPage() {
     Timer(const Duration(seconds: 3), () {
-      // Replace 'SelectRolePage' with whichever page you want to show first
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const SelectRolePage()),
       );
     });
-  }
+  } 
 
   @override
   Widget build(BuildContext context) {
