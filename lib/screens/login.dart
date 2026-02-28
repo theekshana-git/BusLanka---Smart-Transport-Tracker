@@ -1,17 +1,94 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-class LoginPage extends StatelessWidget {
+class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
-  // Reusing the primary dark blue color
   static const Color primaryBlue = Color(0xFF112D75);
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final TextEditingController userController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+
+  bool loading = false;
+
+  Future<void> login() async {
+    String userInput = userController.text.trim();
+    String password = passwordController.text.trim();
+
+    if (userInput.isEmpty || password.isEmpty) {
+      showError("Enter credentials");
+      return;
+    }
+
+    setState(() => loading = true);
+
+    try {
+      String email = userInput;
+
+      // If user typed username instead of email
+      if (!userInput.contains("@")) {
+        var query = await FirebaseFirestore.instance
+            .collection('users')
+            .where('username', isEqualTo: userInput)
+            .limit(1)
+            .get();
+
+        if (query.docs.isEmpty) {
+          showError("User not found");
+          setState(() => loading = false);
+          return;
+        }
+
+        email = query.docs.first['email'];
+      }
+
+      // Firebase login
+      UserCredential credential =
+          await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      // get role
+      var userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(credential.user!.uid)
+          .get();
+
+      String role = userDoc['role'];
+
+      if (!mounted) return;
+
+      if (role == "admin") {
+        Navigator.pushReplacementNamed(context, "/admin");
+      } else if (role == "driver") {
+        Navigator.pushReplacementNamed(context, "/driver");
+      } else {
+        showError("Invalid role");
+      }
+    } on FirebaseAuthException catch (e) {
+      showError(e.message ?? "Login failed");
+    }
+
+    setState(() => loading = false);
+  }
+
+  void showError(String msg) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        // CustomScrollView ensures the screen is scrollable when the keyboard opens
         child: CustomScrollView(
           slivers: [
             SliverFillRemaining(
@@ -28,67 +105,52 @@ class LoginPage extends StatelessWidget {
                       child: Image.asset(
                         'assets/logo.png',
                         height: 120,
-                        width: 120,
-                        fit: BoxFit.contain,
-
-                        errorBuilder: (context, error, stackTrace) =>
-                            const Icon(
-                              Icons.image_not_supported,
-                              size: 100,
-                              color: Colors.grey,
-                            ),
                       ),
                     ),
                     const SizedBox(height: 16),
 
-                    // Page Title
                     const Text(
                       'Login',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 40,
                         fontWeight: FontWeight.w800,
-                        color: primaryBlue,
-                        letterSpacing: -0.5,
+                        color: LoginPage.primaryBlue,
                       ),
                     ),
 
                     const SizedBox(height: 50),
 
-                    // Username Field
-                    _buildInputField('Username', obscureText: false),
+                    _buildInputField(
+                        'Email or Username', userController, false),
 
                     const SizedBox(height: 20),
 
-                    // Password Field
-                    _buildInputField('Password', obscureText: true),
+                    _buildInputField(
+                        'Password', passwordController, true),
 
-                    // Pushes the login button to the bottom
                     const Spacer(),
 
-                    // Login Button
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 40.0, top: 20.0),
+                      padding: const EdgeInsets.only(bottom: 40, top: 20),
                       child: ElevatedButton(
-                        onPressed: () {
-                          // TODO: Add login logic
-                        },
+                        onPressed: loading ? null : login,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: primaryBlue,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
+                          backgroundColor: LoginPage.primaryBlue,
                           minimumSize: const Size(double.infinity, 55),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: const Text(
-                          'Login',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        child: loading
+                            ? const CircularProgressIndicator(
+                                color: Colors.white)
+                            : const Text(
+                                'Login',
+                                style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold),
+                              ),
                       ),
                     ),
                   ],
@@ -101,37 +163,32 @@ class LoginPage extends StatelessWidget {
     );
   }
 
-  // Helper method to build the custom text fields with outside labels
-  Widget _buildInputField(String label, {required bool obscureText}) {
+  Widget _buildInputField(
+      String label, TextEditingController controller, bool obscure) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: primaryBlue,
-          ),
-        ),
+        Text(label,
+            style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: LoginPage.primaryBlue)),
         const SizedBox(height: 8),
         TextField(
-          obscureText: obscureText,
+          controller: controller,
+          obscureText: obscure,
           decoration: InputDecoration(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 16,
-            ),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: primaryBlue, width: 1.0),
+              borderSide: const BorderSide(
+                  color: LoginPage.primaryBlue),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: primaryBlue, width: 2.0),
+              borderSide: const BorderSide(
+                  color: LoginPage.primaryBlue, width: 2),
             ),
-            fillColor: Colors.white,
-            filled: true,
           ),
         ),
       ],
