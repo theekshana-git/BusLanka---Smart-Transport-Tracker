@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'role.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({Key? key}) : super(key: key);
+  const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -20,48 +20,15 @@ class _SplashScreenState extends State<SplashScreen> {
     _checkLoginStatus();
   }
 
-  Future<void> _checkLoginStatus() async {
-    await Future.delayed(const Duration(seconds: 3));
-
-    User? user = FirebaseAuth.instance.currentUser;
-
-    if (!mounted) return;
-
-    if (user == null) {
-      // Not logged in → go to role selection
+  // Timer logic for the splash screen
+  void _navigateToNextPage() {
+    Timer(const Duration(seconds: 3), () {
+      // Replace 'SelectRolePage' with whichever page you want to show first
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const SelectRolePage()),
+        MaterialPageRoute(builder: (context) => const SelectRolePage()),
       );
-    } else {
-      // Logged in → fetch role from Firestore
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-
-      if (!doc.exists) {
-        await FirebaseAuth.instance.signOut();
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const SelectRolePage()),
-        );
-        return;
-      }
-
-      String role = doc['role'];
-
-      if (role == "admin") {
-        Navigator.pushReplacementNamed(context, "/admin");
-      } else if (role == "driver") {
-        Navigator.pushReplacementNamed(context, "/driver");
-      } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const SelectRolePage()),
-        );
-      }
-    }
+    });
   }
 
   @override
