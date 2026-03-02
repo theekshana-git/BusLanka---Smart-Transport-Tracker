@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'role.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  const SplashScreen({Key? key}) : super(key: key);
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -15,18 +17,52 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    _navigateToNextPage();
+    _checkLoginStatus();
   }
 
-  // Timer logic for the splash screen
-  void _navigateToNextPage() {
-    Timer(const Duration(seconds: 3), () {
+  Future<void> _checkLoginStatus() async {
+    await Future.delayed(const Duration(seconds: 3));
+
+    User? user = FirebaseAuth.instance.currentUser;
+
+    if (!mounted) return;
+
+    if (user == null) {
+      // Not logged in → go to role selection
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const SelectRolePage()),
+        MaterialPageRoute(builder: (_) => const SelectRolePage()),
       );
-    });
-  } 
+    } else {
+      // Logged in → fetch role from Firestore
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (!doc.exists) {
+        await FirebaseAuth.instance.signOut();
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const SelectRolePage()),
+        );
+        return;
+      }
+
+      String role = doc['role'];
+
+      if (role == "admin") {
+        Navigator.pushReplacementNamed(context, "/admin");
+      } else if (role == "driver") {
+        Navigator.pushReplacementNamed(context, "/driver");
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const SelectRolePage()),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +75,6 @@ class _SplashScreenState extends State<SplashScreen> {
           children: [
             const Spacer(flex: 3),
 
-            // --- LOGO ---
             Image.asset(
               'assets/logo.png',
               height: 150,
@@ -53,23 +88,21 @@ class _SplashScreenState extends State<SplashScreen> {
             ),
             const SizedBox(height: 24),
 
-            // --- TITLE TEXT ---
             const Text(
               'Bus Lanka',
               style: TextStyle(
                 fontSize: 48,
                 fontWeight: FontWeight.w800,
                 color: primaryBlue,
-                letterSpacing:
-                    -1.0, // Tightly spaces the letters like in your design
+                letterSpacing: -1.0,
               ),
             ),
 
-            const SizedBox(height: 80), // Space between text and loading circle
-            // --- LOADING INDICATOR ---
+            const SizedBox(height: 80),
+
             const CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(primaryBlue),
-              strokeWidth: 4.0, // Makes the loading circle a bit thicker
+              strokeWidth: 4.0,
             ),
 
             const Spacer(flex: 4),
