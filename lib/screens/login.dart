@@ -16,6 +16,7 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController passwordController = TextEditingController();
 
   bool loading = false;
+  bool obscurePassword = true;
 
   Future<void> login() async {
     String userInput = userController.text.trim();
@@ -127,7 +128,16 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 20),
 
                     _buildInputField(
-                        'Password', passwordController, true),
+                      'Password',
+                      passwordController,
+                      obscurePassword,
+                      isPasswordField: true,
+                      onToggleVisibility: () {
+                        setState(() {
+                          obscurePassword = !obscurePassword;
+                        });
+                      },
+                    ),
 
                     const Spacer(),
 
@@ -149,7 +159,8 @@ class _LoginPageState extends State<LoginPage> {
                                 'Login',
                                 style: TextStyle(
                                     fontSize: 20,
-                                    fontWeight: FontWeight.bold),
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white),
                               ),
                       ),
                     ),
@@ -163,14 +174,19 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _buildInputField(
-      String label, TextEditingController controller, bool obscure) {
+ Widget _buildInputField(
+    String label, 
+    TextEditingController controller, 
+    bool obscure, {
+    bool isPasswordField = false,
+    VoidCallback? onToggleVisibility,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
             style: const TextStyle(
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w600, 
                 color: LoginPage.primaryBlue)),
         const SizedBox(height: 8),
         TextField(
@@ -179,15 +195,23 @@ class _LoginPageState extends State<LoginPage> {
           decoration: InputDecoration(
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            // 4. Add the Eye Icon here
+            suffixIcon: isPasswordField
+                ? IconButton(
+                    icon: Icon(
+                      obscure ? Icons.visibility_off : Icons.visibility,
+                      color: LoginPage.primaryBlue.withOpacity(0.7),
+                    ),
+                    onPressed: onToggleVisibility,
+                  )
+                : null,
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                  color: LoginPage.primaryBlue),
+              borderSide: const BorderSide(color: LoginPage.primaryBlue),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                  color: LoginPage.primaryBlue, width: 2),
+              borderSide: const BorderSide(color: LoginPage.primaryBlue, width: 2),
             ),
           ),
         ),
