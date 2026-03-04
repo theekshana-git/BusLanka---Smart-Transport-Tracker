@@ -3,7 +3,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  final String expectedRole;
+
+  const LoginPage({super.key, required this.expectedRole});
 
   static const Color primaryBlue = Color(0xFF112D75);
 
@@ -50,28 +52,31 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       // Firebase login
-      UserCredential credential =
-          await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      UserCredential credential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password);
 
       // get role
       var userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(credential.user!.uid)
           .get();
-
       String role = userDoc['role'];
 
       if (!mounted) return;
 
+      // 🔒 Check if role matches selected role
+      if (role != widget.expectedRole) {
+        await FirebaseAuth.instance.signOut();
+        showError("Access denied. You are not a ${widget.expectedRole}.");
+        setState(() => loading = false);
+        return;
+      }
+
+      // ✅ Role matches → Navigate
       if (role == "admin") {
         Navigator.pushReplacementNamed(context, "/admin");
       } else if (role == "driver") {
         Navigator.pushReplacementNamed(context, "/driver");
-      } else {
-        showError("Invalid role");
       }
     } on FirebaseAuthException catch (e) {
       showError(e.message ?? "Login failed");
@@ -81,8 +86,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void showError(String msg) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -103,10 +107,7 @@ class _LoginPageState extends State<LoginPage> {
 
                     Align(
                       alignment: Alignment.center,
-                      child: Image.asset(
-                        'assets/logo.png',
-                        height: 120,
-                      ),
+                      child: Image.asset('assets/logo.png', height: 120),
                     ),
                     const SizedBox(height: 16),
 
@@ -123,7 +124,10 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 50),
 
                     _buildInputField(
-                        'Email or Username', userController, false),
+                      'Email or Username',
+                      userController,
+                      false,
+                    ),
 
                     const SizedBox(height: 20),
 
@@ -154,13 +158,15 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         child: loading
                             ? const CircularProgressIndicator(
-                                color: Colors.white)
+                                color: Colors.white,
+                              )
                             : const Text(
                                 'Login',
                                 style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white),
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
                               ),
                       ),
                     ),
@@ -174,9 +180,9 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
- Widget _buildInputField(
-    String label, 
-    TextEditingController controller, 
+  Widget _buildInputField(
+    String label,
+    TextEditingController controller,
     bool obscure, {
     bool isPasswordField = false,
     VoidCallback? onToggleVisibility,
@@ -184,17 +190,22 @@ class _LoginPageState extends State<LoginPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: const TextStyle(
-                fontWeight: FontWeight.w600, 
-                color: LoginPage.primaryBlue)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            color: LoginPage.primaryBlue,
+          ),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
           obscureText: obscure,
           decoration: InputDecoration(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 16,
+            ),
             // 4. Add the Eye Icon here
             suffixIcon: isPasswordField
                 ? IconButton(
@@ -211,7 +222,10 @@ class _LoginPageState extends State<LoginPage> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: LoginPage.primaryBlue, width: 2),
+              borderSide: const BorderSide(
+                color: LoginPage.primaryBlue,
+                width: 2,
+              ),
             ),
           ),
         ),
