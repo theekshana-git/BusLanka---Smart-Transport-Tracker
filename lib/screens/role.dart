@@ -50,10 +50,12 @@ class SelectRolePage extends StatelessWidget {
               _buildRoleButton(
                 'Driver',
                 onPressed: () {
-                  // Navigate to the LoginPage when the Driver button is pressed
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const LoginPage()),
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          const LoginPage(expectedRole: "driver"),
+                    ),
                   );
                 },
               ),
@@ -62,10 +64,12 @@ class SelectRolePage extends StatelessWidget {
               _buildRoleButton(
                 'Admin',
                 onPressed: () {
-                  // Navigate to the LoginPage when the Driver button is pressed
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const LoginPage()),
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          const LoginPage(expectedRole: "admin"),
+                    ),
                   );
                 },
               ),
