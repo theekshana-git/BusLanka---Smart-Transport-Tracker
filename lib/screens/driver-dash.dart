@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'role.dart';
 
 class  DriverPage extends StatelessWidget {
-  const DriverPage({Key? key}) : super(key: key);
+  const DriverPage({super.key});
 
   static const Color primaryBlue = Color(0xFF112D75);
 

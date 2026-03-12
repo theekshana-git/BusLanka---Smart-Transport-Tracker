@@ -6,6 +6,12 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'role.dart';
+import 'package:buslanka/models/bus_trip.dart';
+import 'package:buslanka/models/terminal.dart';
+
+// --- Filter State Variables ---
+String? _selectedRoute;
+final TextEditingController _destinationController = TextEditingController();
 
 class PassengerPage extends StatefulWidget {
   const PassengerPage({super.key});
@@ -17,32 +23,53 @@ class PassengerPage extends StatefulWidget {
 class _PassengerPageState extends State<PassengerPage> {
   static const Color primaryBlue = Color(0xFF112D75);
   static const LatLng _defaultLocation = LatLng(6.9271, 79.8612);
-  
-  final String googleApiKey = "AIzaSyBjeK2zWLVNjYMKe7_lJwf2P_cO4yvPCZs"; 
+
+  final String googleApiKey = "AIzaSyBjeK2zWLVNjYMKe7_lJwf2P_cO4yvPCZs";
 
   GoogleMapController? mapController;
   BitmapDescriptor? busIcon;
   bool _isLocating = true;
   
-  // Use Maps for better update detection
-  Map<PolylineId, Polyline> _polylines = {};
-  Map<MarkerId, Marker> _destinationMarkers = {}; 
+  // Track zoom to handle dynamic resizing
+  double _currentZoom = 14.0; 
+
+  final Map<PolylineId, Polyline> _polylines = {};
+  final Map<MarkerId, Marker> _destinationMarkers = {};
   late PolylinePoints polylinePoints;
 
   @override
   void initState() {
     super.initState();
     polylinePoints = PolylinePoints(apiKey: googleApiKey);
-    _loadMarkerIcon();
+    // Initial icon load
+    _updateBusIcon(_currentZoom);
     _initLocationSequence();
   }
 
-  Future<void> _loadMarkerIcon() async {
-    busIcon = await BitmapDescriptor.asset(
-      const ImageConfiguration(size: Size(30, 60)), 
+  /// Dynamically updates the bus icon size based on zoom level
+  Future<void> _updateBusIcon(double zoom) async {
+    double baseWidth;
+    
+    if (zoom >= 16) {
+      baseWidth = 45.0; // Large for street level
+    } else if (zoom >= 14) {
+      baseWidth = 35.0; // Standard
+    } else if (zoom >= 12) {
+      baseWidth = 25.0; // Small for city view
+    } else {
+      baseWidth = 15.0; // Tiny dots for far zoom
+    }
+
+    final newIcon = await BitmapDescriptor.asset(
+      ImageConfiguration(size: Size(baseWidth, baseWidth * 2)),
       'assets/bus_marker.png',
     );
-    if (mounted) setState(() {});
+
+    if (mounted) {
+      setState(() {
+        busIcon = newIcon;
+      });
+    }
   }
 
   Future<void> _initLocationSequence() async {
@@ -50,7 +77,10 @@ class _PassengerPageState extends State<PassengerPage> {
       Position position = await _determinePosition();
       if (mounted) setState(() => _isLocating = false);
       mapController?.animateCamera(
-        CameraUpdate.newLatLngZoom(LatLng(position.latitude, position.longitude), 14),
+        CameraUpdate.newLatLngZoom(
+          LatLng(position.latitude, position.longitude),
+          _currentZoom,
+        ),
       );
     } catch (e) {
       if (mounted) setState(() => _isLocating = false);
@@ -63,27 +93,34 @@ class _PassengerPageState extends State<PassengerPage> {
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return Future.error('Denied');
+      if (permission == LocationPermission.denied) {
+        return Future.error('Denied');
+      }
     }
     return await Geolocator.getCurrentPosition();
   }
 
-  // UPDATED: Logic to verify if user is on route and calculate ETA
-  Future<Map<String, String>> _getRouteData(LatLng busLocation, LatLng userLatLng, LatLng targetLatLng, double heading) async {
+  Future<Map<String, String>> _getRouteData(
+    BusTrip bus,
+    LatLng userLatLng,
+    LatLng targetLatLng,
+  ) async {
     String status = "Away";
     String eta = "--";
 
     double bearingToUser = Geolocator.bearingBetween(
-      busLocation.latitude, busLocation.longitude, userLatLng.latitude, userLatLng.longitude,
+      bus.location.latitude,
+      bus.location.longitude,
+      userLatLng.latitude,
+      userLatLng.longitude,
     );
     if (bearingToUser < 0) bearingToUser += 360;
-    double diff = (heading - bearingToUser).abs();
+    double diff = (bus.heading - bearingToUser).abs();
     if (diff > 180) diff = 360 - diff;
-    
     bool isHeadingToUser = diff < 90;
 
     final url = 'https://maps.googleapis.com/maps/api/directions/json'
-        '?origin=${busLocation.latitude},${busLocation.longitude}'
+        '?origin=${bus.location.latitude},${bus.location.longitude}'
         '&destination=${targetLatLng.latitude},${targetLatLng.longitude}'
         '&waypoints=${userLatLng.latitude},${userLatLng.longitude}'
         '&key=$googleApiKey';
@@ -93,48 +130,56 @@ class _PassengerPageState extends State<PassengerPage> {
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
         if (json['routes'].isNotEmpty) {
-          var legToUser = json['routes'][0]['legs'][0];
-          int distMeters = legToUser['distance']['value'];
+          var route = json['routes'][0];
+          var legToUser = route['legs'][0];
+          int distanceToUser = legToUser['distance']['value'];
 
-          if (isHeadingToUser && distMeters < 15000) { // 15km threshold
+          if (isHeadingToUser && distanceToUser < 10000) {
             status = "Approaching";
             eta = legToUser['duration']['text'];
+          } else if (distanceToUser < 500) {
+            status = "Arriving";
+            eta = "Now";
           }
         }
       }
-    } catch (e) { debugPrint("API Error: $e"); }
-
+    } catch (e) {
+      debugPrint("API Error: $e");
+    }
     return {"status": status, "eta": eta};
   }
 
-  void _showBusDetails(Map<String, dynamic> data, LatLng busPos) async {
-    // 1. CLEAR previous overlays
+  void _showBusDetails(BusTrip bus) async {
     setState(() {
       _polylines.clear();
       _destinationMarkers.clear();
     });
 
-    const Map<String, LatLng> terminalCoordinates = {
-      "Colombo Central Bus Stand": LatLng(6.934971, 79.855155),
-      "Kottawa Bus Stand": LatLng(6.841308, 79.964048),
-      "Athurugiriya Bus Stand": LatLng(6.877492, 79.989499),
-      "Meegoda Bus Stand": LatLng(6.844225, 80.046221),
-    };
+    LatLng targetLatLng = _defaultLocation;
+    try {
+      var terminalQuery = await FirebaseFirestore.instance
+          .collection('terminals')
+          .where('name', isEqualTo: bus.destination)
+          .limit(1)
+          .get();
 
-    String direction = data['direction'] ?? "Inbound";
-    String targetTerminalName = (direction == "Inbound") ? (data['destination'] ?? "") : (data['origin'] ?? "");
-    LatLng targetLatLng = terminalCoordinates[targetTerminalName] ?? _defaultLocation;
+      if (terminalQuery.docs.isNotEmpty) {
+        Terminal term = Terminal.fromFirestore(terminalQuery.docs.first);
+        targetLatLng = term.location;
+      }
+    } catch (e) {
+      debugPrint("Terminal fetch error: $e");
+    }
 
-    // 2. OPEN Bottom Sheet
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      isScrollControlled: true, // Crucial for layout
+      isScrollControlled: true,
       builder: (context) {
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setModalState) {
             return FutureBuilder<Map<String, String>>(
-              future: _fetchAndDraw(busPos, targetLatLng, data, targetTerminalName),
+              future: _fetchAndDraw(bus, targetLatLng),
               builder: (context, snapshot) {
                 bool isLoading = !snapshot.hasData;
                 String eta = snapshot.data?['eta'] ?? "--";
@@ -144,7 +189,10 @@ class _PassengerPageState extends State<PassengerPage> {
                   padding: const EdgeInsets.all(20),
                   decoration: const BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.only(topLeft: Radius.circular(25), topRight: Radius.circular(25)),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(25),
+                      topRight: Radius.circular(25),
+                    ),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -154,64 +202,95 @@ class _PassengerPageState extends State<PassengerPage> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Expanded(
-                            child: Text(data['route_name'] ?? 'Unknown Route', 
-                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: primaryBlue)),
+                            child: Text(
+                              bus.routeName,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: primaryBlue,
+                              ),
+                            ),
                           ),
                           if (!isLoading) _liveBadge(),
                         ],
                       ),
                       const SizedBox(height: 5),
-                      Text("${data['bus_number']} • $direction to $targetTerminalName", 
-                          style: const TextStyle(color: Colors.black54, fontSize: 14)),
+                      Text(
+                        "${bus.busNumber} • Towards ${bus.destination}",
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 14,
+                        ),
+                      ),
                       const Divider(height: 30),
                       if (isLoading)
-                        const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(20),
+                            child: CircularProgressIndicator(),
+                          ),
+                        )
                       else
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _infoColumn(Icons.access_time, "ETA", eta),
-                            _infoColumn(
-                              status == "Approaching" ? Icons.check_circle : Icons.warning_amber_rounded, 
-                              "Status", status,
-                              color: status == "Approaching" ? Colors.green : Colors.orange
-                            ),
-                            _infoColumn(Icons.speed, "Speed", "${data['speed'] ?? 0} km/h"),
-                          ],
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Row(
+                            children: [
+                              Expanded(child: _infoColumn(Icons.access_time, "ETA", eta)),
+                              Expanded(
+                                child: _infoColumn(
+                                  status == "Approaching"
+                                      ? Icons.check_circle
+                                      : Icons.warning_amber_rounded,
+                                  "Status",
+                                  status,
+                                  color: status == "Approaching" ? Colors.green : Colors.orange,
+                                ),
+                              ),
+                              Expanded(child: _infoColumn(Icons.speed, "Speed", "${bus.speed.toInt()} km/h")),
+                            ],
+                          ),
                         ),
                       const SizedBox(height: 25),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryBlue, 
+                            backgroundColor: primaryBlue,
                             padding: const EdgeInsets.all(15),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                           onPressed: () => Navigator.pop(context),
-                          child: const Text("Close", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          child: const Text(
+                            "Close",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
-                      )
+                      ),
                     ],
                   ),
                 );
-              }
+              },
             );
-          }
+          },
         );
       },
     );
   }
 
-  Future<Map<String, String>> _fetchAndDraw(LatLng busPos, LatLng targetPos, Map<String, dynamic> data, String terminalName) async {
+  Future<Map<String, String>> _fetchAndDraw(BusTrip bus, LatLng targetPos) async {
     Position userPos = await Geolocator.getCurrentPosition();
     LatLng userLatLng = LatLng(userPos.latitude, userPos.longitude);
-    
-    var routeInfo = await _getRouteData(busPos, userLatLng, targetPos, (data['heading'] ?? 0).toDouble());
+
+    var routeInfo = await _getRouteData(bus, userLatLng, targetPos);
 
     PolylineResult result = await polylinePoints.getRouteBetweenCoordinates(
       request: PolylineRequest(
-        origin: PointLatLng(busPos.latitude, busPos.longitude),
+        origin: PointLatLng(bus.location.latitude, bus.location.longitude),
         destination: PointLatLng(targetPos.latitude, targetPos.longitude),
         mode: TravelMode.driving,
       ),
@@ -220,7 +299,7 @@ class _PassengerPageState extends State<PassengerPage> {
     if (mounted) {
       setState(() {
         if (result.points.isNotEmpty) {
-          final polylineId = PolylineId("route_line"); // Unique static ID for the current focus
+          const polylineId = PolylineId("route_line");
           _polylines[polylineId] = Polyline(
             polylineId: polylineId,
             points: result.points.map((p) => LatLng(p.latitude, p.longitude)).toList(),
@@ -229,12 +308,12 @@ class _PassengerPageState extends State<PassengerPage> {
             jointType: JointType.round,
           );
         }
-        
-        final markerId = MarkerId("destination_marker");
+
+        const markerId = MarkerId("destination_marker");
         _destinationMarkers[markerId] = Marker(
           markerId: markerId,
           position: targetPos,
-          infoWindow: InfoWindow(title: terminalName),
+          infoWindow: InfoWindow(title: bus.destination),
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
         );
       });
@@ -256,8 +335,14 @@ class _PassengerPageState extends State<PassengerPage> {
   Widget _liveBadge() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(5)),
-      child: const Text("LIVE", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 10)),
+      decoration: BoxDecoration(
+        color: Colors.green.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: const Text(
+        "LIVE",
+        style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 10),
+      ),
     );
   }
 
@@ -274,81 +359,261 @@ class _PassengerPageState extends State<PassengerPage> {
       body: Stack(
         children: [
           StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('active_trips').where('status', isEqualTo: 'live').snapshots(),
+            stream: FirebaseFirestore.instance
+                .collection('active_trips')
+                .where('status', isEqualTo: 'live')
+                .snapshots(),
             builder: (context, snapshot) {
               Set<Marker> markers = {};
-              
+
               if (snapshot.hasData) {
                 for (var doc in snapshot.data!.docs) {
-                  Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-                  GeoPoint point = data['location'];
-                  LatLng busPos = LatLng(point.latitude, point.longitude);
-                  
+                  BusTrip bus = BusTrip.fromFirestore(doc);
+
+                  if (_selectedRoute != null) {
+                    if (!bus.routeName.contains(_selectedRoute!) &&
+                        !bus.busNumber.contains(_selectedRoute!)) {
+                      continue;
+                    }
+                  }
+
+                  String searchDest = _destinationController.text.toLowerCase().trim();
+                  if (searchDest.isNotEmpty) {
+                    List<String> stops = bus.citiesOnRoute;
+                    String currentStop = bus.currentCity.toLowerCase();
+
+                    int busIndex = stops.indexWhere((s) => s.toLowerCase() == currentStop);
+                    int destIndex = stops.indexWhere((s) => s.toLowerCase().contains(searchDest));
+
+                    if (destIndex == -1 || destIndex <= busIndex) {
+                      continue;
+                    }
+                  }
+
                   markers.add(
                     Marker(
-                      markerId: MarkerId(doc.id),
-                      position: busPos,
-                      rotation: (data['heading'] ?? 0).toDouble(),
+                      markerId: MarkerId(bus.id),
+                      position: bus.location,
+                      rotation: bus.heading,
                       anchor: const Offset(0.5, 0.5),
                       icon: busIcon ?? BitmapDescriptor.defaultMarker,
-                      onTap: () => _showBusDetails(data, busPos),
+                      onTap: () => _showBusDetails(bus),
                     ),
                   );
                 }
               }
 
-              // Combine live bus markers with our temporary destination marker
               markers.addAll(_destinationMarkers.values);
 
               return GoogleMap(
-                initialCameraPosition: const CameraPosition(target: _defaultLocation, zoom: 12),
+                initialCameraPosition: CameraPosition(
+                  target: _defaultLocation,
+                  zoom: _currentZoom,
+                ),
                 onMapCreated: (c) => mapController = c,
                 markers: markers,
                 polylines: Set<Polyline>.of(_polylines.values),
                 myLocationEnabled: true,
                 myLocationButtonEnabled: false,
                 zoomControlsEnabled: false,
-                onTap: (_) => setState(() { _polylines.clear(); _destinationMarkers.clear(); }),
+                onCameraMove: (position) {
+                  // Only reload icons if zoom integer changes significantly
+                  if (position.zoom.round() != _currentZoom.round()) {
+                    _currentZoom = position.zoom;
+                    _updateBusIcon(_currentZoom);
+                  }
+                },
+                onTap: (_) => setState(() {
+                  _polylines.clear();
+                  _destinationMarkers.clear();
+                }),
               );
             },
           ),
+          Positioned(
+            top: 16,
+            right: 16,
+            child: FloatingActionButton.extended(
+              heroTag: "filterBtn",
+              onPressed: _showFilterSheet,
+              backgroundColor: primaryBlue,
+              icon: const Icon(Icons.filter_list, color: Colors.white),
+              label: const Text("Filter", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ),
           if (_isLocating) _loader(),
+          Positioned(
+            bottom: 110,
+            right: 16,
+            child: FloatingActionButton(
+              heroTag: "locateBtn",
+              backgroundColor: primaryBlue,
+              onPressed: _initLocationSequence,
+              child: const Icon(Icons.my_location, color: Colors.white),
+            ),
+          ),
           Positioned(bottom: 0, left: 0, right: 0, child: _buildBlueFooter()),
         ],
       ),
     );
   }
 
-   Widget _loader() => Container(color: Colors.white.withOpacity(0.7), child: const Center(child: CircularProgressIndicator()));
+  Widget _loader() => Container(
+    color: Colors.white.withOpacity(0.7),
+    child: const Center(child: CircularProgressIndicator()),
+  );
 
-  Widget _appBarTitle() => Row(children: [
-    Image.asset('assets/white.png', height: 50, errorBuilder: (c, e, s) => const Icon(Icons.bus_alert, color: Colors.white)),
-    const SizedBox(width: 12),
-    const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Bus Lanka', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-      Text('Hi, Passenger', style: TextStyle(fontSize: 12, color: Colors.white70)),
-    ])
-  ]);
+  Widget _appBarTitle() => Row(
+    children: [
+      Image.asset('assets/white.png', height: 50, errorBuilder: (c,e,s) => const Icon(Icons.bus_alert, color: Colors.white)),
+      const SizedBox(width: 12),
+      const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Bus Lanka', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+          Text('Hi, Passenger', style: TextStyle(fontSize: 12, color: Colors.white70)),
+        ],
+      ),
+    ],
+  );
 
   Widget _buildBlueFooter() => Container(
     color: primaryBlue,
     padding: const EdgeInsets.symmetric(vertical: 15),
-    child: SafeArea(top: false, child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-      _footerNavButton("Contact Us", Icons.contact_support_outlined),
-      _footerNavButton("Feedback", Icons.feedback_outlined),
-    ])),
+    child: SafeArea(
+      top: false,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _footerNavButton("Contact Us", Icons.contact_support_outlined),
+          _footerNavButton("Feedback", Icons.feedback_outlined),
+        ],
+      ),
+    ),
   );
 
   Widget _footerNavButton(String t, IconData i) => InkWell(
     onTap: () {},
-    child: Column(mainAxisSize: MainAxisSize.min, children: [
-      Icon(i, color: Colors.white),
-      Text(t, style: const TextStyle(color: Colors.white, fontSize: 10))
-    ]),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(i, color: Colors.white),
+        Text(t, style: const TextStyle(color: Colors.white, fontSize: 10)),
+      ],
+    ),
   );
 
   Widget _logoutButton(BuildContext context) => IconButton(
     icon: const Icon(Icons.logout, color: Colors.white),
     onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (c) => const SelectRolePage())),
   );
+
+  void _showFilterSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Container(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                top: 25, left: 20, right: 20,
+              ),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(topLeft: Radius.circular(30), topRight: Radius.circular(30)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Search Buses", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: primaryBlue)),
+                      IconButton(icon: const Icon(Icons.close, color: Colors.grey), onPressed: () => Navigator.pop(context)),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _destinationController,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (val) {
+                      setState(() { _polylines.clear(); _destinationMarkers.clear(); });
+                      Navigator.pop(context);
+                    },
+                    decoration: InputDecoration(
+                      hintText: "Where are you going?",
+                      prefixIcon: const Icon(Icons.location_on, color: primaryBlue),
+                      filled: true,
+                      fillColor: Colors.grey.shade100,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 25),
+                  const Text("Select Route Number", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance.collection('active_trips').snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const LinearProgressIndicator();
+                      Set<String> routeNumbers = {};
+                      for (var doc in snapshot.data!.docs) {
+                        String fullRoute = doc['route_name'] ?? "";
+                        if (fullRoute.isNotEmpty) routeNumbers.add(fullRoute.split(' ')[0]);
+                      }
+                      return Wrap(
+                        spacing: 10,
+                        children: routeNumbers.map((number) {
+                          bool isSelected = _selectedRoute == number;
+                          return ChoiceChip(
+                            label: Text(number),
+                            selected: isSelected,
+                            selectedColor: primaryBlue,
+                            labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
+                            onSelected: (selected) {
+                              setModalState(() => _selectedRoute = selected ? number : null);
+                            },
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 30),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.search, color: Colors.white),
+                      label: const Text("Search Now", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryBlue,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () {
+                        setState(() { _polylines.clear(); _destinationMarkers.clear(); });
+                        Navigator.pop(context);
+                      },
+                    ),
+                  ),
+                  if (_selectedRoute != null || _destinationController.text.isNotEmpty)
+                    Center(
+                      child: TextButton(
+                        onPressed: () {
+                          setModalState(() { _selectedRoute = null; _destinationController.clear(); });
+                          setState(() { _polylines.clear(); _destinationMarkers.clear(); });
+                        },
+                        child: const Text("Clear All Filters", style: TextStyle(color: Colors.red)),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
