@@ -83,7 +83,6 @@ class _PassengerPageState extends State<PassengerPage> {
     return await Geolocator.getCurrentPosition();
   }
 
-  // UPDATED: Logic to verify if user is on route and calculate ETA
   Future<Map<String, String>> _getRouteData(
     LatLng busLocation,
     LatLng userLatLng,
@@ -93,6 +92,7 @@ class _PassengerPageState extends State<PassengerPage> {
     String status = "Away";
     String eta = "--";
 
+    // 1. Basic Heading Check (Is it generally facing the user?)
     double bearingToUser = Geolocator.bearingBetween(
       busLocation.latitude,
       busLocation.longitude,
@@ -102,11 +102,19 @@ class _PassengerPageState extends State<PassengerPage> {
     if (bearingToUser < 0) bearingToUser += 360;
     double diff = (heading - bearingToUser).abs();
     if (diff > 180) diff = 360 - diff;
-
     bool isHeadingToUser = diff < 90;
 
-    final url =
-        'https://maps.googleapis.com/maps/api/directions/json'
+    // 2. Proximity Check (Is the user close to the bus?)
+    double directDistToUser = Geolocator.distanceBetween(
+      busLocation.latitude,
+      busLocation.longitude,
+      userLatLng.latitude,
+      userLatLng.longitude,
+    );
+
+    // 3. Route Alignment Check
+    // We request a route from Bus -> Destination with User as a WAYPOINT
+    final url = 'https://maps.googleapis.com/maps/api/directions/json'
         '?origin=${busLocation.latitude},${busLocation.longitude}'
         '&destination=${targetLatLng.latitude},${targetLatLng.longitude}'
         '&waypoints=${userLatLng.latitude},${userLatLng.longitude}'
@@ -117,13 +125,25 @@ class _PassengerPageState extends State<PassengerPage> {
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
         if (json['routes'].isNotEmpty) {
-          var legToUser = json['routes'][0]['legs'][0];
-          int distMeters = legToUser['distance']['value'];
-
-          if (isHeadingToUser && distMeters < 15000) {
-            // 15km threshold
+          var route = json['routes'][0];
+          var legToUser = route['legs'][0]; // Bus to User
+          var legToTarget = route['legs'][1]; // User to Destination
+          
+          int distanceToUser = legToUser['distance']['value']; // meters
+          
+          // Calculate if user is "On the way" 
+          // Logic: If the bus is heading toward you AND you are within 10km 
+          // AND the bus hasn't passed you yet.
+          
+          if (isHeadingToUser && distanceToUser < 10000) {
+            // Check if the user is actually near the road the bus is taking
+            // 'location_suggestion' or proximity to polyline could be used, 
+            // but the waypoint distance is a strong indicator.
             status = "Approaching";
             eta = legToUser['duration']['text'];
+          } else if (distanceToUser < 500) {
+            status = "Arriving";
+            eta = "Now";
           }
         }
       }
@@ -285,12 +305,12 @@ class _PassengerPageState extends State<PassengerPage> {
     );
 
     PolylineResult result = await polylinePoints.getRouteBetweenCoordinates(
-      request: PolylineRequest(
-        origin: PointLatLng(busPos.latitude, busPos.longitude),
-        destination: PointLatLng(targetPos.latitude, targetPos.longitude),
-        mode: TravelMode.driving,
-      ),
-    );
+    request: PolylineRequest(
+    origin: PointLatLng(busPos.latitude, busPos.longitude),
+    destination: PointLatLng(targetPos.latitude, targetPos.longitude),
+    mode: TravelMode.driving,
+  ),
+);
 
     if (mounted) {
       setState(() {
@@ -390,7 +410,7 @@ class _PassengerPageState extends State<PassengerPage> {
 
                   // --- NEW: FILTERING LOGIC ---
                   String routeName = data['route_name']?.toString() ?? '';
-                  String busNumber = data['route_id']?.toString() ?? '';
+                  String busNumber = data['bus_number']?.toString() ?? '';
 
                   // 1. Filter by Route Chips (e.g., '138', '170')
                   if (_selectedRoute != null) {
@@ -400,33 +420,26 @@ class _PassengerPageState extends State<PassengerPage> {
                     }
                   }
 
-                  // 2. Filter by Search Bar (Directional Logic)
-                  String searchDest = _destinationController.text.toLowerCase();
-                  if (searchDest.isNotEmpty) {
-                    // Check if it's Inbound or Outbound
-                    String direction =
-                        data['direction']?.toString().toLowerCase() ??
-                        'inbound';
+                  // 2. Directional Logic based on Stop Sequence
+        String searchDest = _destinationController.text.toLowerCase().trim();
+        if (searchDest.isNotEmpty) {
+          List<dynamic> stops = data['cities_on_route'] ?? [];
+          String currentStop = (data['current_city'] ?? '').toString().toLowerCase();
 
-                    // Apply your logic:
-                    // Outbound -> Heading to 'last_stop'
-                    // Inbound -> Heading to 'destination'
-                    String targetHeading = (direction == 'outbound')
-                        ? (data['last_stop']?.toString().toLowerCase() ?? '')
-                        : (data['destination']?.toString().toLowerCase() ?? '');
+          // Find where the bus is in the list
+          int busIndex = stops.indexWhere((s) => s.toString().toLowerCase() == currentStop);
+          
+          // Find where the passenger wants to go in the list
+          int destIndex = stops.indexWhere((s) => s.toString().toLowerCase().contains(searchDest));
 
-                    // Also check your cities list just in case they search a middle town
-                    List<dynamic> cities = data['cities_on_route'] ?? [];
-                    bool matchesCity = cities.any(
-                      (city) =>
-                          city.toString().toLowerCase().contains(searchDest),
-                    );
-
-                    // If it doesn't match the city AND doesn't match the correct target heading, hide it!
-                    if (!matchesCity && !targetHeading.contains(searchDest)) {
-                      continue;
-                    }
-                  }
+          /* If destIndex is -1: The bus doesn't go to that stop on this trip.
+          If destIndex <= busIndex: The bus has already passed that stop or is currently there.
+          We only show buses where the destination is AHEAD of the bus (destIndex > busIndex).
+          */
+          if (destIndex == -1 || destIndex <= busIndex) {
+            continue; 
+          }
+        }
                   // --- END FILTERING LOGIC ---
 
                   GeoPoint point = data['location'];
@@ -481,6 +494,21 @@ class _PassengerPageState extends State<PassengerPage> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
+            ),
+          ),
+
+          if (_isLocating) _loader(),
+          Positioned(bottom: 0, left: 0, right: 0, child: _buildBlueFooter()),
+          // --- ADDED: LOCATE ME BUTTON ---
+          Positioned(
+            bottom: 110, // Sits above the blue footer
+            right: 16,
+            child: FloatingActionButton(
+              heroTag: "locateBtn",
+              backgroundColor: primaryBlue,
+              elevation: 4,
+              onPressed: _initLocationSequence, // Reuses your existing logic
+              child: const Icon(Icons.my_location, color: Colors.white),
             ),
           ),
 
@@ -580,13 +608,6 @@ class _PassengerPageState extends State<PassengerPage> {
                   topLeft: Radius.circular(30),
                   topRight: Radius.circular(30),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 10,
-                    spreadRadius: 2,
-                  ),
-                ],
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -597,7 +618,7 @@ class _PassengerPageState extends State<PassengerPage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        "Filter Buses",
+                        "Search Buses",
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
@@ -615,15 +636,18 @@ class _PassengerPageState extends State<PassengerPage> {
                   // Destination Input
                   TextField(
                     controller: _destinationController,
-                    onChanged: (val) {
-                      setState(() {});
+                    textInputAction: TextInputAction.search, // Changes keyboard enter key to "Search"
+                    onSubmitted: (val) {
+                      // Trigger search when Enter is pressed
+                      setState(() {
+                        _polylines.clear();
+                        _destinationMarkers.clear();
+                      });
+                      Navigator.pop(context);
                     },
                     decoration: InputDecoration(
-                      hintText: "Enter Destination...",
-                      prefixIcon: const Icon(
-                        Icons.location_on,
-                        color: primaryBlue,
-                      ),
+                      hintText: "Where are you going?",
+                      prefixIcon: const Icon(Icons.location_on, color: primaryBlue),
                       filled: true,
                       fillColor: Colors.grey.shade100,
                       border: OutlineInputBorder(
@@ -636,41 +660,22 @@ class _PassengerPageState extends State<PassengerPage> {
 
                   // Route Selection
                   const Text(
-                    "Select Route",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                    ),
+                    "Select Route Number",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 10,
-                    runSpacing: 10,
                     children: ['190', '138', '170'].map((route) {
                       bool isSelected = _selectedRoute == route;
                       return ChoiceChip(
-                        label: Text(
-                          route,
-                          style: TextStyle(
-                            color: isSelected ? Colors.white : Colors.black87,
-                          ),
-                        ),
+                        label: Text(route),
                         selected: isSelected,
                         selectedColor: primaryBlue,
-                        backgroundColor: Colors.grey.shade200,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        showCheckmark: false,
+                        labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
                         onSelected: (bool selected) {
                           setModalState(() {
                             _selectedRoute = selected ? route : null;
-                          });
-
-                          // Simply clear any lines and update the map to show only filtered buses
-                          setState(() {
-                            _polylines.clear();
                           });
                         },
                       );
@@ -678,19 +683,33 @@ class _PassengerPageState extends State<PassengerPage> {
                   ),
                   const SizedBox(height: 30),
 
-                  // Clear Filters Button
-                  if (_selectedRoute != null ||
-                      _destinationController.text.isNotEmpty)
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                          side: const BorderSide(color: Colors.redAccent),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
+                  // MAIN SEARCH BUTTON
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.search, color: Colors.white),
+                      label: const Text("Search Now", 
+                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryBlue,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () {
+                        // Triggers the StreamBuilder to filter based on current controller text
+                        setState(() {
+                          _polylines.clear();
+                          _destinationMarkers.clear();
+                        });
+                        Navigator.pop(context);
+                      },
+                    ),
+                  ),
+                  
+                  // Clear Button
+                  if (_selectedRoute != null || _destinationController.text.isNotEmpty)
+                    Center(
+                      child: TextButton(
                         onPressed: () {
                           setModalState(() {
                             _selectedRoute = null;
@@ -698,15 +717,10 @@ class _PassengerPageState extends State<PassengerPage> {
                           });
                           setState(() {
                             _polylines.clear();
+                            _destinationMarkers.clear();
                           });
                         },
-                        child: const Text(
-                          "Clear Filters",
-                          style: TextStyle(
-                            color: Colors.redAccent,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        child: const Text("Clear All Filters", style: TextStyle(color: Colors.red)),
                       ),
                     ),
                 ],
