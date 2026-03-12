@@ -10,12 +10,7 @@ import 'role.dart';
 // --- Filter State Variables ---
 String? _selectedRoute;
 final TextEditingController _destinationController = TextEditingController();
-final Map<String, LatLng> sharedTerminals = {
-  "Colombo Central Bus Stand": const LatLng(6.934971, 79.855155),
-  "Kottawa Bus Stand": const LatLng(6.841308, 79.964048),
-  "Athurugiriya Bus Stand": const LatLng(6.877492, 79.989499),
-  "Meegoda Bus Stand": const LatLng(6.844225, 80.046221),
-};
+
 
 class PassengerPage extends StatefulWidget {
   const PassengerPage({super.key});
@@ -161,15 +156,25 @@ class _PassengerPageState extends State<PassengerPage> {
       _destinationMarkers.clear();
     });
 
-    String direction = data['direction'] ?? "Inbound";
-    String targetTerminalName = (direction == "Inbound")
-        ? (data['destination'] ?? "")
-        : (data['origin'] ?? "");
+    String targetTerminalName = data['destination'] ?? "Unknown Destination";
 
-    LatLng targetLatLng =
-        sharedTerminals[targetTerminalName] ?? _defaultLocation;
+    LatLng targetLatLng = _defaultLocation;
+    try {
+    // Query terminals collection where the 'name' field matches
+    var terminalQuery = await FirebaseFirestore.instance
+        .collection('terminals')
+        .where('name', isEqualTo: targetTerminalName)
+        .limit(1)
+        .get();
 
-    // 2. OPEN Bottom Sheet
+    if (terminalQuery.docs.isNotEmpty) {
+      GeoPoint gp = terminalQuery.docs.first.get('location');
+      targetLatLng = LatLng(gp.latitude, gp.longitude);
+    }
+  } catch (e) {
+    debugPrint("Terminal fetch error: $e");
+  }
+   // 2. OPEN Bottom Sheet
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -207,7 +212,7 @@ class _PassengerPageState extends State<PassengerPage> {
                         children: [
                           Expanded(
                             child: Text(
-                              data['route_name'] ?? 'Unknown Route',
+                              data['route_name'] ?? 'Route',
                               style: const TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
@@ -220,7 +225,7 @@ class _PassengerPageState extends State<PassengerPage> {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        "${data['bus_number']} • $direction to $targetTerminalName",
+                        "${data['bus_number']} • Towards $targetTerminalName",
                         style: const TextStyle(
                           color: Colors.black54,
                           fontSize: 14,
@@ -664,23 +669,39 @@ class _PassengerPageState extends State<PassengerPage> {
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 10,
-                    children: ['190', '138', '170'].map((route) {
-                      bool isSelected = _selectedRoute == route;
-                      return ChoiceChip(
-                        label: Text(route),
-                        selected: isSelected,
-                        selectedColor: primaryBlue,
-                        labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
-                        onSelected: (bool selected) {
-                          setModalState(() {
-                            _selectedRoute = selected ? route : null;
-                          });
-                        },
-                      );
-                    }).toList(),
-                  ),
+                  // DYNAMIC ROUTE CHIPS FROM ACTIVE TRIPS
+                StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance.collection('active_trips').snapshots(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) return const LinearProgressIndicator();
+
+                    // Extract unique route numbers (e.g., "190" from "190 Meegoda")
+                    Set<String> routeNumbers = {};
+                    for (var doc in snapshot.data!.docs) {
+                      String fullRoute = doc['route_name'] ?? "";
+                      if (fullRoute.isNotEmpty) {
+                        // Takes the first word/number of the string
+                        routeNumbers.add(fullRoute.split(' ')[0]);
+                      }
+                    }
+
+                    return Wrap(
+                      spacing: 10,
+                      children: routeNumbers.map((number) {
+                        bool isSelected = _selectedRoute == number;
+                        return ChoiceChip(
+                          label: Text(number),
+                          selected: isSelected,
+                          selectedColor: primaryBlue,
+                          labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
+                          onSelected: (selected) {
+                            setModalState(() => _selectedRoute = selected ? number : null);
+                          },
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
                   const SizedBox(height: 30),
 
                   // MAIN SEARCH BUTTON
