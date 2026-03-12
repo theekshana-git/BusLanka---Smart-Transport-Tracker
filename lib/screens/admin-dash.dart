@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'role.dart';
 
 class AdminPage extends StatelessWidget {
-  const AdminPage({Key? key}) : super(key: key);
+  const AdminPage({super.key});
 
   static const Color primaryBlue = Color(0xFF112D75);
 
