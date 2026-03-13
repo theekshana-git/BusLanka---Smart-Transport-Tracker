@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 // Import your new model
 import 'package:buslanka/models/user_model.dart'; 
 import 'role.dart';
+import 'driver-dash.dart';
 
 class LoginPage extends StatefulWidget {
   final String expectedRole;
@@ -57,24 +58,23 @@ class _LoginPageState extends State<LoginPage> {
       UserCredential credential = await FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: password);
 
-      // 3. Fetch User Data and convert to UserModel
+      // 3. Fetch User Data
       var userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(credential.user!.uid)
           .get();
 
       if (!userDoc.exists) {
-        showError("User profile not found in database.");
+        showError("User profile not found.");
         setState(() => loading = false);
         return;
       }
 
-      // USE YOUR MODEL HERE
       UserModel currentUser = UserModel.fromFirestore(userDoc);
 
       if (!mounted) return;
 
-      // 4. Role Validation using the model
+      // 4. Role Validation
       if (currentUser.role != widget.expectedRole) {
         await FirebaseAuth.instance.signOut();
         showError("Access denied. You are not a ${widget.expectedRole}.");
@@ -83,13 +83,18 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       // 5. Success Navigation
-      // Note: You can pass currentUser to the next screen if your route supports it
-      if (currentUser.role == "admin") {
-        Navigator.pushReplacementNamed(context, "/admin");
-      } else if (currentUser.role == "driver") {
-        Navigator.pushReplacementNamed(context, "/driver");
+      if (currentUser.role == "driver") {
+       Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(
+      // CRITICAL: Pass 'email', NOT 'userController.text'
+      builder: (context) => DriverDashboard(userEmail: email), 
+    ),
+  );
       } else if (currentUser.role == "passenger") {
         Navigator.pushReplacementNamed(context, "/passenger");
+      } else if (currentUser.role == "admin") {
+        Navigator.pushReplacementNamed(context, "/admin");
       }
       
     } on FirebaseAuthException catch (e) {
@@ -106,6 +111,7 @@ class _LoginPageState extends State<LoginPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  // --- UI build method remains the same as your provided code ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
