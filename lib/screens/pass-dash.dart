@@ -8,6 +8,8 @@ import 'package:http/http.dart' as http;
 import 'role.dart';
 import 'package:buslanka/models/bus_trip.dart';
 import 'package:buslanka/models/terminal.dart';
+import 'feedback.dart';
+import 'contact-us.dart';
 
 // --- Filter State Variables ---
 String? _selectedRoute;
@@ -29,9 +31,9 @@ class _PassengerPageState extends State<PassengerPage> {
   GoogleMapController? mapController;
   BitmapDescriptor? busIcon;
   bool _isLocating = true;
-  
+
   // Track zoom to handle dynamic resizing
-  double _currentZoom = 14.0; 
+  double _currentZoom = 14.0;
 
   final Map<PolylineId, Polyline> _polylines = {};
   final Map<MarkerId, Marker> _destinationMarkers = {};
@@ -49,7 +51,7 @@ class _PassengerPageState extends State<PassengerPage> {
   /// Dynamically updates the bus icon size based on zoom level
   Future<void> _updateBusIcon(double zoom) async {
     double baseWidth;
-    
+
     if (zoom >= 16) {
       baseWidth = 45.0; // Large for street level
     } else if (zoom >= 14) {
@@ -119,7 +121,8 @@ class _PassengerPageState extends State<PassengerPage> {
     if (diff > 180) diff = 360 - diff;
     bool isHeadingToUser = diff < 90;
 
-    final url = 'https://maps.googleapis.com/maps/api/directions/json'
+    final url =
+        'https://maps.googleapis.com/maps/api/directions/json'
         '?origin=${bus.location.latitude},${bus.location.longitude}'
         '&destination=${targetLatLng.latitude},${targetLatLng.longitude}'
         '&waypoints=${userLatLng.latitude},${userLatLng.longitude}'
@@ -235,7 +238,13 @@ class _PassengerPageState extends State<PassengerPage> {
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           child: Row(
                             children: [
-                              Expanded(child: _infoColumn(Icons.access_time, "ETA", eta)),
+                              Expanded(
+                                child: _infoColumn(
+                                  Icons.access_time,
+                                  "ETA",
+                                  eta,
+                                ),
+                              ),
                               Expanded(
                                 child: _infoColumn(
                                   status == "Approaching"
@@ -243,10 +252,18 @@ class _PassengerPageState extends State<PassengerPage> {
                                       : Icons.warning_amber_rounded,
                                   "Status",
                                   status,
-                                  color: status == "Approaching" ? Colors.green : Colors.orange,
+                                  color: status == "Approaching"
+                                      ? Colors.green
+                                      : Colors.orange,
                                 ),
                               ),
-                              Expanded(child: _infoColumn(Icons.speed, "Speed", "${bus.speed.toInt()} km/h")),
+                              Expanded(
+                                child: _infoColumn(
+                                  Icons.speed,
+                                  "Speed",
+                                  "${bus.speed.toInt()} km/h",
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -282,7 +299,10 @@ class _PassengerPageState extends State<PassengerPage> {
     );
   }
 
-  Future<Map<String, String>> _fetchAndDraw(BusTrip bus, LatLng targetPos) async {
+  Future<Map<String, String>> _fetchAndDraw(
+    BusTrip bus,
+    LatLng targetPos,
+  ) async {
     Position userPos = await Geolocator.getCurrentPosition();
     LatLng userLatLng = LatLng(userPos.latitude, userPos.longitude);
 
@@ -302,7 +322,9 @@ class _PassengerPageState extends State<PassengerPage> {
           const polylineId = PolylineId("route_line");
           _polylines[polylineId] = Polyline(
             polylineId: polylineId,
-            points: result.points.map((p) => LatLng(p.latitude, p.longitude)).toList(),
+            points: result.points
+                .map((p) => LatLng(p.latitude, p.longitude))
+                .toList(),
             color: primaryBlue.withOpacity(0.7),
             width: 5,
             jointType: JointType.round,
@@ -321,13 +343,28 @@ class _PassengerPageState extends State<PassengerPage> {
     return routeInfo;
   }
 
-  Widget _infoColumn(IconData icon, String label, String value, {Color color = primaryBlue}) {
+  Widget _infoColumn(
+    IconData icon,
+    String label,
+    String value, {
+    Color color = primaryBlue,
+  }) {
     return Column(
       children: [
         Icon(icon, color: color, size: 22),
         const SizedBox(height: 5),
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.black45)),
-        Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color)),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: Colors.black45),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
       ],
     );
   }
@@ -341,7 +378,11 @@ class _PassengerPageState extends State<PassengerPage> {
       ),
       child: const Text(
         "LIVE",
-        style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 10),
+        style: TextStyle(
+          color: Colors.green,
+          fontWeight: FontWeight.bold,
+          fontSize: 10,
+        ),
       ),
     );
   }
@@ -377,13 +418,19 @@ class _PassengerPageState extends State<PassengerPage> {
                     }
                   }
 
-                  String searchDest = _destinationController.text.toLowerCase().trim();
+                  String searchDest = _destinationController.text
+                      .toLowerCase()
+                      .trim();
                   if (searchDest.isNotEmpty) {
                     List<String> stops = bus.citiesOnRoute;
                     String currentStop = bus.currentCity.toLowerCase();
 
-                    int busIndex = stops.indexWhere((s) => s.toLowerCase() == currentStop);
-                    int destIndex = stops.indexWhere((s) => s.toLowerCase().contains(searchDest));
+                    int busIndex = stops.indexWhere(
+                      (s) => s.toLowerCase() == currentStop,
+                    );
+                    int destIndex = stops.indexWhere(
+                      (s) => s.toLowerCase().contains(searchDest),
+                    );
 
                     if (destIndex == -1 || destIndex <= busIndex) {
                       continue;
@@ -438,7 +485,13 @@ class _PassengerPageState extends State<PassengerPage> {
               onPressed: _showFilterSheet,
               backgroundColor: primaryBlue,
               icon: const Icon(Icons.filter_list, color: Colors.white),
-              label: const Text("Filter", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              label: const Text(
+                "Filter",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ),
           if (_isLocating) _loader(),
@@ -465,13 +518,28 @@ class _PassengerPageState extends State<PassengerPage> {
 
   Widget _appBarTitle() => Row(
     children: [
-      Image.asset('assets/white.png', height: 50, errorBuilder: (c,e,s) => const Icon(Icons.bus_alert, color: Colors.white)),
+      Image.asset(
+        'assets/white.png',
+        height: 50,
+        errorBuilder: (c, e, s) =>
+            const Icon(Icons.bus_alert, color: Colors.white),
+      ),
       const SizedBox(width: 12),
       const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Bus Lanka', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-          Text('Hi, Passenger', style: TextStyle(fontSize: 12, color: Colors.white70)),
+          Text(
+            'Bus Lanka',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          Text(
+            'Hi, Passenger',
+            style: TextStyle(fontSize: 12, color: Colors.white70),
+          ),
         ],
       ),
     ],
@@ -485,15 +553,28 @@ class _PassengerPageState extends State<PassengerPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _footerNavButton("Contact Us", Icons.contact_support_outlined),
-          _footerNavButton("Feedback", Icons.feedback_outlined),
+          /// CONTACT PAGE
+          _footerNavButton("Contact Us", Icons.contact_support_outlined, () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => ContactUsPage()),
+            );
+          }),
+
+          /// FEEDBACK PAGE
+          _footerNavButton("Feedback", Icons.feedback_outlined, () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => FeedbackPage()),
+            );
+          }),
         ],
       ),
     ),
   );
 
-  Widget _footerNavButton(String t, IconData i) => InkWell(
-    onTap: () {},
+  Widget _footerNavButton(String t, IconData i, VoidCallback onTap) => InkWell(
+    onTap: onTap,
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -505,7 +586,10 @@ class _PassengerPageState extends State<PassengerPage> {
 
   Widget _logoutButton(BuildContext context) => IconButton(
     icon: const Icon(Icons.logout, color: Colors.white),
-    onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (c) => const SelectRolePage())),
+    onPressed: () => Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (c) => const SelectRolePage()),
+    ),
   );
 
   void _showFilterSheet() {
@@ -519,11 +603,16 @@ class _PassengerPageState extends State<PassengerPage> {
             return Container(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-                top: 25, left: 20, right: 20,
+                top: 25,
+                left: 20,
+                right: 20,
               ),
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.only(topLeft: Radius.circular(30), topRight: Radius.circular(30)),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(30),
+                  topRight: Radius.circular(30),
+                ),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -532,8 +621,18 @@ class _PassengerPageState extends State<PassengerPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text("Search Buses", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: primaryBlue)),
-                      IconButton(icon: const Icon(Icons.close, color: Colors.grey), onPressed: () => Navigator.pop(context)),
+                      const Text(
+                        "Search Buses",
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: primaryBlue,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.grey),
+                        onPressed: () => Navigator.pop(context),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 20),
@@ -541,28 +640,44 @@ class _PassengerPageState extends State<PassengerPage> {
                     controller: _destinationController,
                     textInputAction: TextInputAction.search,
                     onSubmitted: (val) {
-                      setState(() { _polylines.clear(); _destinationMarkers.clear(); });
+                      setState(() {
+                        _polylines.clear();
+                        _destinationMarkers.clear();
+                      });
                       Navigator.pop(context);
                     },
                     decoration: InputDecoration(
                       hintText: "Where are you going?",
-                      prefixIcon: const Icon(Icons.location_on, color: primaryBlue),
+                      prefixIcon: const Icon(
+                        Icons.location_on,
+                        color: primaryBlue,
+                      ),
                       filled: true,
                       fillColor: Colors.grey.shade100,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide.none,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 25),
-                  const Text("Select Route Number", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  const Text(
+                    "Select Route Number",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 12),
                   StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance.collection('active_trips').snapshots(),
+                    stream: FirebaseFirestore.instance
+                        .collection('active_trips')
+                        .snapshots(),
                     builder: (context, snapshot) {
-                      if (!snapshot.hasData) return const LinearProgressIndicator();
+                      if (!snapshot.hasData)
+                        return const LinearProgressIndicator();
                       Set<String> routeNumbers = {};
                       for (var doc in snapshot.data!.docs) {
                         String fullRoute = doc['route_name'] ?? "";
-                        if (fullRoute.isNotEmpty) routeNumbers.add(fullRoute.split(' ')[0]);
+                        if (fullRoute.isNotEmpty)
+                          routeNumbers.add(fullRoute.split(' ')[0]);
                       }
                       return Wrap(
                         spacing: 10,
@@ -572,9 +687,13 @@ class _PassengerPageState extends State<PassengerPage> {
                             label: Text(number),
                             selected: isSelected,
                             selectedColor: primaryBlue,
-                            labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
+                            labelStyle: TextStyle(
+                              color: isSelected ? Colors.white : Colors.black,
+                            ),
                             onSelected: (selected) {
-                              setModalState(() => _selectedRoute = selected ? number : null);
+                              setModalState(
+                                () => _selectedRoute = selected ? number : null,
+                              );
                             },
                           );
                         }).toList(),
@@ -586,26 +705,48 @@ class _PassengerPageState extends State<PassengerPage> {
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.search, color: Colors.white),
-                      label: const Text("Search Now", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      label: const Text(
+                        "Search Now",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryBlue,
                         padding: const EdgeInsets.symmetric(vertical: 15),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       onPressed: () {
-                        setState(() { _polylines.clear(); _destinationMarkers.clear(); });
+                        setState(() {
+                          _polylines.clear();
+                          _destinationMarkers.clear();
+                        });
                         Navigator.pop(context);
                       },
                     ),
                   ),
-                  if (_selectedRoute != null || _destinationController.text.isNotEmpty)
+                  if (_selectedRoute != null ||
+                      _destinationController.text.isNotEmpty)
                     Center(
                       child: TextButton(
                         onPressed: () {
-                          setModalState(() { _selectedRoute = null; _destinationController.clear(); });
-                          setState(() { _polylines.clear(); _destinationMarkers.clear(); });
+                          setModalState(() {
+                            _selectedRoute = null;
+                            _destinationController.clear();
+                          });
+                          setState(() {
+                            _polylines.clear();
+                            _destinationMarkers.clear();
+                          });
                         },
-                        child: const Text("Clear All Filters", style: TextStyle(color: Colors.red)),
+                        child: const Text(
+                          "Clear All Filters",
+                          style: TextStyle(color: Colors.red),
+                        ),
                       ),
                     ),
                 ],

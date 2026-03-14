@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 // Import your new model
-import 'package:buslanka/models/user_model.dart'; 
-import 'role.dart';
+import 'package:buslanka/models/user_model.dart';
 
 class LoginPage extends StatefulWidget {
   final String expectedRole;
@@ -91,7 +90,6 @@ class _LoginPageState extends State<LoginPage> {
       } else if (currentUser.role == "passenger") {
         Navigator.pushReplacementNamed(context, "/passenger");
       }
-      
     } on FirebaseAuthException catch (e) {
       showError(e.message ?? "Login failed");
     } catch (e) {
@@ -123,7 +121,15 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 60),
                     Align(
                       alignment: Alignment.center,
-                      child: Image.asset('assets/logo.png', height: 120, errorBuilder: (c, e, s) => const Icon(Icons.bus_alert, size: 80, color: LoginPage.primaryBlue)),
+                      child: Image.asset(
+                        'assets/logo.png',
+                        height: 120,
+                        errorBuilder: (c, e, s) => const Icon(
+                          Icons.bus_alert,
+                          size: 80,
+                          color: LoginPage.primaryBlue,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 16),
                     const Text(
@@ -136,14 +142,19 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const SizedBox(height: 50),
-                    _buildInputField('Email or Username', userController, false),
+                    _buildInputField(
+                      'Email or Username',
+                      userController,
+                      false,
+                    ),
                     const SizedBox(height: 20),
                     _buildInputField(
                       'Password',
                       passwordController,
                       obscurePassword,
                       isPasswordField: true,
-                      onToggleVisibility: () => setState(() => obscurePassword = !obscurePassword),
+                      onToggleVisibility: () =>
+                          setState(() => obscurePassword = !obscurePassword),
                     ),
                     const Spacer(),
                     Padding(
@@ -153,13 +164,21 @@ class _LoginPageState extends State<LoginPage> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: LoginPage.primaryBlue,
                           minimumSize: const Size(double.infinity, 55),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
                         child: loading
-                            ? const CircularProgressIndicator(color: Colors.white)
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
                             : const Text(
                                 'Login',
-                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
                               ),
                       ),
                     ),
@@ -173,25 +192,52 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _buildInputField(String label, TextEditingController controller, bool obscure, {bool isPasswordField = false, VoidCallback? onToggleVisibility}) {
+  Widget _buildInputField(
+    String label,
+    TextEditingController controller,
+    bool obscure, {
+    bool isPasswordField = false,
+    VoidCallback? onToggleVisibility,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, color: LoginPage.primaryBlue)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            color: LoginPage.primaryBlue,
+          ),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
           obscureText: obscure,
           decoration: InputDecoration(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 16,
+            ),
             suffixIcon: isPasswordField
                 ? IconButton(
-                    icon: Icon(obscure ? Icons.visibility_off : Icons.visibility, color: LoginPage.primaryBlue.withOpacity(0.7)),
+                    icon: Icon(
+                      obscure ? Icons.visibility_off : Icons.visibility,
+                      color: LoginPage.primaryBlue.withOpacity(0.7),
+                    ),
                     onPressed: onToggleVisibility,
                   )
                 : null,
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: LoginPage.primaryBlue)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: LoginPage.primaryBlue, width: 2)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: LoginPage.primaryBlue),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(
+                color: LoginPage.primaryBlue,
+                width: 2,
+              ),
+            ),
           ),
         ),
       ],
