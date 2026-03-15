@@ -8,6 +8,8 @@ import 'package:http/http.dart' as http;
 import 'role.dart';
 import 'package:buslanka/models/bus_trip.dart';
 import 'package:buslanka/models/terminal.dart';
+import 'package:buslanka/screens/contact-us.dart';
+import 'package:buslanka/screens/feedback.dart';
 
 // --- Filter State Variables ---
 String? _selectedRoute;
@@ -36,6 +38,23 @@ class _PassengerPageState extends State<PassengerPage> {
   final Map<PolylineId, Polyline> _polylines = {};
   final Map<MarkerId, Marker> _destinationMarkers = {};
   late PolylinePoints polylinePoints;
+
+  String _getTimeAgo(Timestamp? timestamp) {
+  if (timestamp == null) return "Unknown";
+  
+  DateTime lastUpdate = timestamp.toDate();
+  Duration diff = DateTime.now().difference(lastUpdate);
+
+  if (diff.inSeconds < 60) {
+    return "Just now";
+  } else if (diff.inMinutes < 60) {
+    return "${diff.inMinutes} mins ago";
+  } else if (diff.inHours < 24) {
+    return "${diff.inHours} hours ago";
+  } else {
+    return "${diff.inDays} days ago";
+  }
+}
 
   @override
   void initState() {
@@ -184,6 +203,11 @@ class _PassengerPageState extends State<PassengerPage> {
                 bool isLoading = !snapshot.hasData;
                 String eta = snapshot.data?['eta'] ?? "--";
                 String status = snapshot.data?['status'] ?? "Checking...";
+               
+                
+                // Formatting the timestamp
+                // Note: Replace 'bus.lastUpdated' with your actual model field name
+              String lastSeen = _getTimeAgo(bus.lastUpdate);
 
                 return Container(
                   padding: const EdgeInsets.all(20),
@@ -222,6 +246,19 @@ class _PassengerPageState extends State<PassengerPage> {
                           fontSize: 14,
                         ),
                       ),
+                      // --- NEW TIMESTAMP SECTION ---
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(Icons.history, size: 14, color: Colors.grey),
+                          const SizedBox(width: 4),
+                          Text(
+                            "Last updated: $lastSeen",
+                            style: const TextStyle(color: Colors.grey, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                      // ----------------------------
                       const Divider(height: 30),
                       if (isLoading)
                         const Center(
@@ -367,8 +404,26 @@ class _PassengerPageState extends State<PassengerPage> {
               Set<Marker> markers = {};
 
               if (snapshot.hasData) {
+                final now = DateTime.now();
+                
                 for (var doc in snapshot.data!.docs) {
                   BusTrip bus = BusTrip.fromFirestore(doc);
+                  // --- NEW: Strategy B Inactivity Check ---
+    if (bus.lastUpdate != null) {
+      final diff = now.difference(bus.lastUpdate!.toDate());
+      
+      // If the bus hasn't updated in 10 minutes or more
+      if (diff.inMinutes >= 10) {
+        // 1. Silently update the database so other passengers don't see it either
+        FirebaseFirestore.instance
+            .collection('active_trips')
+            .doc(doc.id)
+            .update({'status': 'inactive'});
+            
+        // 2. Skip adding this marker to the map
+        continue; 
+      }
+    }
 
                   if (_selectedRoute != null) {
                     if (!bus.routeName.contains(_selectedRoute!) &&
@@ -485,15 +540,29 @@ class _PassengerPageState extends State<PassengerPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _footerNavButton("Contact Us", Icons.contact_support_outlined),
-          _footerNavButton("Feedback", Icons.feedback_outlined),
+          /// CONTACT PAGE
+          _footerNavButton("Contact Us", Icons.contact_support_outlined, () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => ContactUsPage()),
+            );
+          }),
+
+          /// FEEDBACK PAGE
+          _footerNavButton("Feedback", Icons.feedback_outlined, () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => FeedbackPage()),
+            );
+          }),
         ],
       ),
     ),
   );
 
-  Widget _footerNavButton(String t, IconData i) => InkWell(
-    onTap: () {},
+
+  Widget _footerNavButton(String t, IconData i, VoidCallback onTap) => InkWell(
+    onTap: onTap,
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
