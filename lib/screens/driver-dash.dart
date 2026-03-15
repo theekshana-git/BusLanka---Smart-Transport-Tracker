@@ -178,7 +178,6 @@ class _DriverDashboardState extends State<DriverDashboard> {
     );
   }
 
-  // --- UI COMPONENTS ---
 
   Widget _buildBusInfoRow() {
     return Row(
