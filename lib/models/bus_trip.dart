@@ -14,6 +14,7 @@ class BusTrip {
   final String routeName;
   final double speed;
   final String status;
+  final Timestamp? lastUpdate;
 
   BusTrip({
     required this.id,
@@ -28,6 +29,7 @@ class BusTrip {
     required this.routeName,
     required this.speed,
     required this.status,
+    required this.lastUpdate
   });
 
   factory BusTrip.fromFirestore(DocumentSnapshot doc) {
@@ -47,6 +49,7 @@ class BusTrip {
       routeName: data['route_name'] ?? '',
       speed: (data['speed'] ?? 0).toDouble(),
       status: data['status'] ?? 'offline',
+      lastUpdate: data['last_update'] as Timestamp?,
     );
   }
 }
