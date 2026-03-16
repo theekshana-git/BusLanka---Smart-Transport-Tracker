@@ -27,11 +27,7 @@ class MyApp extends StatelessWidget {
       routes: {
         "/": (_) => const SplashScreen(),
         "/role": (_) => const SelectRolePage(),
-<<<<<<< Updated upstream
         "/admin": (_) => const AdminDashboard(adminEmail: "",),
-=======
-        "/admin": (_) => AdminDashboard(adminEmail: ""),
->>>>>>> Stashed changes
         "/driver": (_) => DriverDashboard(userEmail: ""),
         "/passenger": (_) => const PassengerPage(),
       },

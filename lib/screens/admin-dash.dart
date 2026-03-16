@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart'; // Added for the phone icon
 import 'role.dart'; 
 
 class AdminDashboard extends StatefulWidget {
@@ -24,35 +25,33 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
+  // --- 1. UPDATED APP BAR TO MATCH PASSENGER PAGE ---
   PreferredSizeWidget _buildAppBar() {
     String username = widget.adminEmail.split('@')[0];
     if (username.isNotEmpty) username = username[0].toUpperCase() + username.substring(1);
 
     return AppBar(
       backgroundColor: primaryBlue,
-      elevation: 0,
-      toolbarHeight: 70,
+      toolbarHeight: 80,
       automaticallyImplyLeading: false,
       title: Row(
         children: [
-          Image.asset('assets/white.png', height: 40, errorBuilder: (c, e, s) => const Icon(Icons.directions_bus, color: Colors.white, size: 36)),
+          Image.asset('assets/white.png', height: 50, errorBuilder: (c,e,s) => const Icon(Icons.bus_alert, color: Colors.white)),
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Admin Panel', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
-              Text('Hi, $username', style: const TextStyle(fontSize: 13, color: Colors.white70)),
+              const Text('Bus Lanka', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+              Text('Hi, $username', style: const TextStyle(fontSize: 12, color: Colors.white70)),
             ],
           ),
         ],
       ),
       actions: [
         IconButton(
-          icon: const Icon(Icons.logout, color: Colors.white, size: 26),
-          tooltip: 'Logout',
-          onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (c) => const SelectRolePage())),
-        ),
-        const SizedBox(width: 8),
+          icon: const Icon(Icons.logout, color: Colors.white), 
+          onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (c) => const SelectRolePage()))
+        )
       ],
     );
   }
@@ -223,12 +222,39 @@ class OverviewView extends StatelessWidget {
 }
 
 // ==========================================
-// 2. BUSES VIEW 
+// 2. BUSES VIEW (WITH CONFIRMATION BOXES)
 // ==========================================
 class BusesView extends StatelessWidget {
   const BusesView({Key? key}) : super(key: key);
   static const Color primaryBlue = Color(0xFF112D75);
   static const Color activeGreen = Color(0xFF79E780);
+
+  // --- NEW: Confirmation Dialog Helper ---
+  void _confirmAction(BuildContext context, String title, String message, VoidCallback onConfirm) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: Text(title, style: const TextStyle(color: primaryBlue, fontWeight: FontWeight.bold)),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx), 
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey))
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: primaryBlue),
+            onPressed: () {
+              Navigator.pop(ctx);
+              onConfirm();
+            },
+            child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+  // ----------------------------------------
 
   void _showAddBusDialog(BuildContext context) {
     final busNoController = TextEditingController();
@@ -296,7 +322,7 @@ class BusesView extends StatelessWidget {
                         'origin': selectedRouteData!['origin'],
                         'destination': selectedRouteData!['destination'],
                         'cities_on_route': selectedRouteData!['cities_on_route'],
-                        'stops_data': selectedRouteData!['stops_data'] ?? [], // Copies location data too
+                        'stops_data': selectedRouteData!['stops_data'] ?? [], 
                         'current_city': selectedRouteData!['origin'],
                         'direction': 'inbound',
                         'status': 'inactive',
@@ -380,9 +406,17 @@ class BusesView extends StatelessWidget {
                                 ],
                               ),
                               GestureDetector(
-                                onTap: () => FirebaseFirestore.instance.collection('active_trips').doc(doc.id).update({
-                                  'status': isLive ? 'inactive' : 'live', 'speed': 0, 'last_update': FieldValue.serverTimestamp()
-                                }),
+                                // --- UPDATED: Confirmation Dialog for toggling ---
+                                onTap: () {
+                                  String actionText = isLive ? "deactivate" : "activate";
+                                  _confirmAction(context, "Change Status", "Are you sure you want to $actionText this bus?", () {
+                                    FirebaseFirestore.instance.collection('active_trips').doc(doc.id).update({
+                                      'status': isLive ? 'inactive' : 'live', 
+                                      'speed': 0, 
+                                      'last_update': FieldValue.serverTimestamp()
+                                    });
+                                  });
+                                },
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                   decoration: BoxDecoration(color: isLive ? activeGreen : Colors.red, borderRadius: BorderRadius.circular(20)),
@@ -405,7 +439,12 @@ class BusesView extends StatelessWidget {
                               Expanded(child: Text(data['route_name'] ?? 'No Route', style: const TextStyle(color: Colors.black87, fontSize: 14))),
                               IconButton(
                                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                onPressed: () => FirebaseFirestore.instance.collection('active_trips').doc(doc.id).delete(),
+                                // --- UPDATED: Confirmation Dialog for deleting ---
+                                onPressed: () {
+                                  _confirmAction(context, "Delete Bus", "Are you sure you want to permanently delete ${data['bus_number']}?", () {
+                                    FirebaseFirestore.instance.collection('active_trips').doc(doc.id).delete();
+                                  });
+                                }
                               )
                             ],
                           )
@@ -424,7 +463,7 @@ class BusesView extends StatelessWidget {
 }
 
 // ==========================================
-// 3. ROUTES VIEW (WITH TERMINAL GEOCODING)
+// 3. ROUTES VIEW
 // ==========================================
 class RoutesView extends StatelessWidget {
   const RoutesView({Key? key}) : super(key: key);
@@ -478,17 +517,15 @@ class RoutesView extends StatelessWidget {
                   if (noCtrl.text.isNotEmpty && nameCtrl.text.isNotEmpty) {
                     List<Map<String, dynamic>> stopsData = [];
                     
-                    // Fetch locations automatically from the terminals collection!
                     for(String city in cities) {
                       var termQuery = await FirebaseFirestore.instance.collection('terminals').where('name', isEqualTo: city).limit(1).get();
                       
                       if(termQuery.docs.isNotEmpty) {
                         stopsData.add({
                           'name': city,
-                          'location': termQuery.docs.first.get('location') // Gets the GeoPoint
+                          'location': termQuery.docs.first.get('location') 
                         });
                       } else {
-                        // If admin typed a city not in terminals, just add the name without a location
                         stopsData.add({
                           'name': city,
                         });
@@ -500,8 +537,8 @@ class RoutesView extends StatelessWidget {
                       'route_name': nameCtrl.text.trim(),
                       'origin': originCtrl.text.trim(),
                       'destination': destCtrl.text.trim(),
-                      'cities_on_route': cities, // Keeps the regular string array for compatibility
-                      'stops_data': stopsData, // Saves the newly fetched terminal locations
+                      'cities_on_route': cities, 
+                      'stops_data': stopsData, 
                     });
                     Navigator.pop(context);
                   } else {
@@ -606,7 +643,7 @@ class RoutesView extends StatelessWidget {
 }
 
 // ==========================================
-// 4. DRIVERS VIEW 
+// 4. DRIVERS VIEW (WITH WORKING PHONE CALL)
 // ==========================================
 class DriversView extends StatelessWidget {
   const DriversView({Key? key}) : super(key: key);
@@ -665,6 +702,24 @@ class DriversView extends StatelessWidget {
       )
     );
   }
+
+  Future<void> _callDriver(BuildContext context, String phoneNumber) async {
+    if (phoneNumber.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No phone number registered for this driver.")));
+      return;
+    }
+    
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    
+    try {
+      // By skipping the 'canLaunchUrl()' check, we bypass the Android 11 security block
+      // and force the phone's OS to open the dialer directly!
+      await launchUrl(launchUri); 
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to open dialer.")));
+    }
+  }
+  // ---------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -729,7 +784,8 @@ class DriversView extends StatelessWidget {
                         ),
                         IconButton(
                           icon: const Icon(Icons.phone, color: Colors.green),
-                          onPressed: () { /* Logic to call driver */ },
+                          // --- UPDATED: Call driver function ---
+                          onPressed: () => _callDriver(context, data['contact'] ?? ''),
                         )
                       ],
                     ),
@@ -745,15 +801,25 @@ class DriversView extends StatelessWidget {
 }
 
 // ==========================================
-// 5. FEEDBACK VIEW (Fixed duplicate border bug)
+// 5. FEEDBACK VIEW (Bulletproof Version)
 // ==========================================
 class FeedbackView extends StatelessWidget {
   const FeedbackView({Key? key}) : super(key: key);
   static const Color primaryBlue = Color(0xFF112D75);
 
-  String _formatTimeAgo(Timestamp? timestamp) {
+  String _formatTimeAgo(dynamic timestamp) {
     if (timestamp == null) return "Unknown Date";
-    Duration diff = DateTime.now().difference(timestamp.toDate());
+    
+    DateTime date;
+    if (timestamp is Timestamp) {
+      date = timestamp.toDate();
+    } else if (timestamp is String) {
+      date = DateTime.tryParse(timestamp) ?? DateTime.now();
+    } else {
+      return "Unknown Date";
+    }
+
+    Duration diff = DateTime.now().difference(date);
     if (diff.inMinutes < 1) return "Just now";
     if (diff.inHours < 1) return "${diff.inMinutes}m ago";
     if (diff.inDays < 1) return "${diff.inHours}h ago";
@@ -771,50 +837,73 @@ class FeedbackView extends StatelessWidget {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('feedbacks').orderBy('timestamp', descending: true).snapshots(),
+            // REMOVED .orderBy() so Firestore doesn't crash on missing indexes
+            stream: FirebaseFirestore.instance.collection('feedbacks').snapshots(),
             builder: (context, snapshot) {
-              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-              if (snapshot.data!.docs.isEmpty) return const Center(child: Text("No feedback received yet.", style: TextStyle(color: Colors.grey)));
+              
+              if (snapshot.hasError) {
+                return Center(child: Text("Database Error: ${snapshot.error}", style: const TextStyle(color: Colors.red)));
+              }
+
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return const Center(
+                  child: Text("No feedback received yet.", style: TextStyle(color: Colors.grey, fontSize: 16))
+                );
+              }
+
+              // Sort the data in Dart instead of Firebase to prevent crashes!
+              var docs = snapshot.data!.docs;
+              docs.sort((a, b) {
+                var aData = a.data() as Map<String, dynamic>;
+                var bData = b.data() as Map<String, dynamic>;
+                if (aData['timestamp'] is Timestamp && bData['timestamp'] is Timestamp) {
+                  return (bData['timestamp'] as Timestamp).compareTo(aData['timestamp'] as Timestamp);
+                }
+                return 0;
+              });
 
               return ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                itemCount: snapshot.data!.docs.length,
+                itemCount: docs.length,
                 itemBuilder: (context, index) {
-                  var data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white, 
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 4))],
-                      // Fixed the duplicate border argument here!
-                      border: const Border(
-                        left: BorderSide(color: primaryBlue, width: 4),
-                        top: BorderSide(color: Color(0xFFEEEEEE), width: 1),
-                        right: BorderSide(color: Color(0xFFEEEEEE), width: 1),
-                        bottom: BorderSide(color: Color(0xFFEEEEEE), width: 1),
-                      ),
+                  var data = docs[index].data() as Map<String, dynamic>;
+                  
+                  return Card(
+                    elevation: 1,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.grey.shade300)
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.format_quote_rounded, color: primaryBlue, size: 20),
-                                const SizedBox(width: 8),
-                                Text(data['name'] ?? 'Anonymous', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: primaryBlue)),
-                              ],
-                            ),
-                            Text(_formatTimeAgo(data['timestamp'] as Timestamp?), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Text(data['message'] ?? 'No message provided.', style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87)),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.person, color: primaryBlue, size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(data['name'] ?? 'Anonymous', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryBlue)),
+                                ],
+                              ),
+                              Text(_formatTimeAgo(data['timestamp']), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                            ],
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 10),
+                            child: Divider(height: 1),
+                          ),
+                          Text(data['message'] ?? 'No message provided.', style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87)),
+                        ],
+                      ),
                     ),
                   );
                 },

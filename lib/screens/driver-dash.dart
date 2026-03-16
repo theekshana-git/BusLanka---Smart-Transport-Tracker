@@ -64,7 +64,7 @@ class _DriverDashboardState extends State<DriverDashboard> {
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
     // Set to 10 minutes as per requirements
-    _inactivityTimer = Timer(const Duration(minutes: 10), () {
+    _inactivityTimer = Timer(const Duration(minutes: 3), () {
       if (_isTripLive && mounted) {
         _toggleTrip(); // Automatically end the trip
         ScaffoldMessenger.of(context).showSnackBar(
