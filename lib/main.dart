@@ -27,7 +27,7 @@ class MyApp extends StatelessWidget {
       routes: {
         "/": (_) => const SplashScreen(),
         "/role": (_) => const SelectRolePage(),
-        "/admin": (_) => const AdminPage(),
+        "/admin": (_) => const AdminDashboard(adminEmail: "",),
         "/driver": (_) => DriverDashboard(userEmail: ""),
         "/passenger": (_) => const PassengerPage(),
       },
