@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:buslanka/models/user_model.dart'; 
 import 'role.dart';
 import 'driver-dash.dart';
+import 'admin-dash.dart';
 
 class LoginPage extends StatefulWidget {
   final String expectedRole;
@@ -94,7 +95,12 @@ class _LoginPageState extends State<LoginPage> {
       } else if (currentUser.role == "passenger") {
         Navigator.pushReplacementNamed(context, "/passenger");
       } else if (currentUser.role == "admin") {
-        Navigator.pushReplacementNamed(context, "/admin");
+        Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(
+      // CRITICAL: Pass 'email', NOT 'userController.text'
+      builder: (context) => AdminDashboard(adminEmail: email), 
+    ),);
       }
       
     } on FirebaseAuthException catch (e) {

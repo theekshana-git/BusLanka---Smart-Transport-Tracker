@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'dart:convert';
+import 'dart:async'; 
 import 'package:http/http.dart' as http;
 import 'role.dart';
 import 'package:buslanka/models/bus_trip.dart';
@@ -39,30 +40,109 @@ class _PassengerPageState extends State<PassengerPage> {
   final Map<MarkerId, Marker> _destinationMarkers = {};
   late PolylinePoints polylinePoints;
 
-  String _getTimeAgo(Timestamp? timestamp) {
-  if (timestamp == null) return "Unknown";
-  
-  DateTime lastUpdate = timestamp.toDate();
-  Duration diff = DateTime.now().difference(lastUpdate);
+  // ==========================================
+  // --- VIVA SIMULATION VARIABLES ---
+  // ==========================================
+  Timer? _demoTimer;
+  int _demoIndex = 0;
+  LatLng? _demoBusPos;
+  double _demoBusHeading = 0.0;
+  bool _isDemoActive = false;
+  List<LatLng> _demoPath = []; // Will be populated from the polyline dynamically
+  // ==========================================
 
-  if (diff.inSeconds < 60) {
-    return "Just now";
-  } else if (diff.inMinutes < 60) {
-    return "${diff.inMinutes} mins ago";
-  } else if (diff.inHours < 24) {
-    return "${diff.inHours} hours ago";
-  } else {
-    return "${diff.inDays} days ago";
+  String _getTimeAgo(Timestamp? timestamp) {
+    if (timestamp == null) return "Unknown";
+    
+    DateTime lastUpdate = timestamp.toDate();
+    Duration diff = DateTime.now().difference(lastUpdate);
+
+    if (diff.inSeconds < 60) {
+      return "Just now";
+    } else if (diff.inMinutes < 60) {
+      return "${diff.inMinutes} mins ago";
+    } else if (diff.inHours < 24) {
+      return "${diff.inHours} hours ago";
+    } else {
+      return "${diff.inDays} days ago";
+    }
   }
-}
 
   @override
   void initState() {
     super.initState();
     polylinePoints = PolylinePoints(apiKey: googleApiKey);
-    // Initial icon load
     _updateBusIcon(_currentZoom);
     _initLocationSequence();
+  }
+
+  @override
+  void dispose() {
+    _demoTimer?.cancel(); 
+    super.dispose();
+  }
+
+  // --- UPDATED: Dynamic Polyline Simulation Logic ---
+  void _toggleDemo() {
+    if (_isDemoActive) {
+      _demoTimer?.cancel();
+      setState(() {
+        _isDemoActive = false;
+        _demoBusPos = null;
+      });
+    } else {
+      // 1. Ensure a route is drawn on the map first
+      if (_polylines.isEmpty || _polylines.values.first.points.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Please tap on a bus marker first to load its route!"),
+            backgroundColor: primaryBlue,
+          )
+        );
+        return;
+      }
+
+      setState(() {
+        _isDemoActive = true;
+        // Grab the exact points from the blue line drawn by Google Maps
+        _demoPath = _polylines.values.first.points;
+        _demoIndex = 0;
+        _demoBusPos = _demoPath[_demoIndex];
+        _demoBusHeading = 0.0; 
+      });
+      
+      // Calculate a step size so the demo always takes ~15 seconds
+      // 15 seconds / 0.3 sec per tick = 50 ticks total
+      int step = (_demoPath.length / 50).ceil();
+      if (step < 1) step = 1;
+
+      // Run a fast timer (300ms) for smooth animation
+      _demoTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) {
+        if (!mounted) return;
+        setState(() {
+          int nextIndex = _demoIndex + step;
+          
+          if (nextIndex >= _demoPath.length) {
+            // Reached destination, loop back to start!
+            _demoIndex = 0; 
+            _demoBusPos = _demoPath[_demoIndex];
+          } else {
+            // Move forward
+            LatLng current = _demoPath[_demoIndex];
+            LatLng next = _demoPath[nextIndex];
+            
+            // Calculate accurate rotation so bus faces the road
+            _demoBusHeading = Geolocator.bearingBetween(
+              current.latitude, current.longitude,
+              next.latitude, next.longitude
+            );
+            
+            _demoIndex = nextIndex;
+            _demoBusPos = _demoPath[_demoIndex];
+          }
+        });
+      });
+    }
   }
 
   /// Dynamically updates the bus icon size based on zoom level
@@ -203,11 +283,7 @@ class _PassengerPageState extends State<PassengerPage> {
                 bool isLoading = !snapshot.hasData;
                 String eta = snapshot.data?['eta'] ?? "--";
                 String status = snapshot.data?['status'] ?? "Checking...";
-               
-                
-                // Formatting the timestamp
-                // Note: Replace 'bus.lastUpdated' with your actual model field name
-              String lastSeen = _getTimeAgo(bus.lastUpdate);
+                String lastSeen = _getTimeAgo(bus.lastUpdate);
 
                 return Container(
                   padding: const EdgeInsets.all(20),
@@ -246,7 +322,6 @@ class _PassengerPageState extends State<PassengerPage> {
                           fontSize: 14,
                         ),
                       ),
-                      // --- NEW TIMESTAMP SECTION ---
                       const SizedBox(height: 4),
                       Row(
                         children: [
@@ -258,7 +333,6 @@ class _PassengerPageState extends State<PassengerPage> {
                           ),
                         ],
                       ),
-                      // ----------------------------
                       const Divider(height: 30),
                       if (isLoading)
                         const Center(
@@ -408,26 +482,17 @@ class _PassengerPageState extends State<PassengerPage> {
                 
                 for (var doc in snapshot.data!.docs) {
                   BusTrip bus = BusTrip.fromFirestore(doc);
-                  // --- NEW: Strategy B Inactivity Check ---
-    if (bus.lastUpdate != null) {
-      final diff = now.difference(bus.lastUpdate!.toDate());
-      
-      // If the bus hasn't updated in 10 minutes or more
-      if (diff.inMinutes >= 10) {
-        // 1. Silently update the database so other passengers don't see it either
-        FirebaseFirestore.instance
-            .collection('active_trips')
-            .doc(doc.id)
-            .update({'status': 'inactive'});
-            
-        // 2. Skip adding this marker to the map
-        continue; 
-      }
-    }
+
+                  if (bus.lastUpdate != null) {
+                    final diff = now.difference(bus.lastUpdate!.toDate());
+                    if (diff.inMinutes >= 10) {
+                      FirebaseFirestore.instance.collection('active_trips').doc(doc.id).update({'status': 'inactive'});
+                      continue; 
+                    }
+                  }
 
                   if (_selectedRoute != null) {
-                    if (!bus.routeName.contains(_selectedRoute!) &&
-                        !bus.busNumber.contains(_selectedRoute!)) {
+                    if (!bus.routeName.contains(_selectedRoute!) && !bus.busNumber.contains(_selectedRoute!)) {
                       continue;
                     }
                   }
@@ -436,13 +501,9 @@ class _PassengerPageState extends State<PassengerPage> {
                   if (searchDest.isNotEmpty) {
                     List<String> stops = bus.citiesOnRoute;
                     String currentStop = bus.currentCity.toLowerCase();
-
                     int busIndex = stops.indexWhere((s) => s.toLowerCase() == currentStop);
                     int destIndex = stops.indexWhere((s) => s.toLowerCase().contains(searchDest));
-
-                    if (destIndex == -1 || destIndex <= busIndex) {
-                      continue;
-                    }
+                    if (destIndex == -1 || destIndex <= busIndex) continue;
                   }
 
                   markers.add(
@@ -460,6 +521,21 @@ class _PassengerPageState extends State<PassengerPage> {
 
               markers.addAll(_destinationMarkers.values);
 
+              // 3. --- DYNAMIC VIVA DEMO MARKER ---
+              if (_isDemoActive && _demoBusPos != null) {
+                markers.add(
+                  Marker(
+                    markerId: const MarkerId("viva_demo_bus"),
+                    position: _demoBusPos!,
+                    rotation: _demoBusHeading,
+                    anchor: const Offset(0.5, 0.5),
+                    icon: busIcon ?? BitmapDescriptor.defaultMarker,
+                    infoWindow: const InfoWindow(title: "LIVE DEMO", snippet: "Moving real-time to destination"),
+                    zIndex: 100, // Makes sure it renders on top of everything
+                  ),
+                );
+              }
+
               return GoogleMap(
                 initialCameraPosition: CameraPosition(
                   target: _defaultLocation,
@@ -472,7 +548,6 @@ class _PassengerPageState extends State<PassengerPage> {
                 myLocationButtonEnabled: false,
                 zoomControlsEnabled: false,
                 onCameraMove: (position) {
-                  // Only reload icons if zoom integer changes significantly
                   if (position.zoom.round() != _currentZoom.round()) {
                     _currentZoom = position.zoom;
                     _updateBusIcon(_currentZoom);
@@ -481,10 +556,13 @@ class _PassengerPageState extends State<PassengerPage> {
                 onTap: (_) => setState(() {
                   _polylines.clear();
                   _destinationMarkers.clear();
+                  // Also stop demo if they clear the route
+                  if (_isDemoActive) _toggleDemo();
                 }),
               );
             },
           ),
+          
           Positioned(
             top: 16,
             right: 16,
@@ -496,7 +574,21 @@ class _PassengerPageState extends State<PassengerPage> {
               label: const Text("Filter", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
           ),
+          
           if (_isLocating) _loader(),
+          
+          Positioned(
+            bottom: 170, 
+            right: 16,
+            child: FloatingActionButton(
+              heroTag: "demoPlayBtn",
+              backgroundColor: _isDemoActive ? Colors.red : primaryBlue,
+              onPressed: _toggleDemo,
+              tooltip: "Play Demo Bus",
+              child: Icon(_isDemoActive ? Icons.stop : Icons.play_arrow, color: Colors.white, size: 30),
+            ),
+          ),
+          
           Positioned(
             bottom: 110,
             right: 16,
@@ -507,6 +599,7 @@ class _PassengerPageState extends State<PassengerPage> {
               child: const Icon(Icons.my_location, color: Colors.white),
             ),
           ),
+          
           Positioned(bottom: 0, left: 0, right: 0, child: _buildBlueFooter()),
         ],
       ),
@@ -540,15 +633,12 @@ class _PassengerPageState extends State<PassengerPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          /// CONTACT PAGE
           _footerNavButton("Contact Us", Icons.contact_support_outlined, () {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => ContactUsPage()),
             );
           }),
-
-          /// FEEDBACK PAGE
           _footerNavButton("Feedback", Icons.feedback_outlined, () {
             Navigator.push(
               context,
