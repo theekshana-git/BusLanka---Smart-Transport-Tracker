@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:url_launcher/url_launcher.dart'; // Added for the phone icon
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart'; 
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'role.dart'; 
 
 class AdminDashboard extends StatefulWidget {
@@ -25,7 +29,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  // --- 1. UPDATED APP BAR TO MATCH PASSENGER PAGE ---
   PreferredSizeWidget _buildAppBar() {
     String username = widget.adminEmail.split('@')[0];
     if (username.isNotEmpty) username = username[0].toUpperCase() + username.substring(1);
@@ -222,14 +225,13 @@ class OverviewView extends StatelessWidget {
 }
 
 // ==========================================
-// 2. BUSES VIEW (WITH CONFIRMATION BOXES)
+// 2. BUSES VIEW
 // ==========================================
 class BusesView extends StatelessWidget {
   const BusesView({Key? key}) : super(key: key);
   static const Color primaryBlue = Color(0xFF112D75);
   static const Color activeGreen = Color(0xFF79E780);
 
-  // --- NEW: Confirmation Dialog Helper ---
   void _confirmAction(BuildContext context, String title, String message, VoidCallback onConfirm) {
     showDialog(
       context: context,
@@ -254,7 +256,6 @@ class BusesView extends StatelessWidget {
       ),
     );
   }
-  // ----------------------------------------
 
   void _showAddBusDialog(BuildContext context) {
     final busNoController = TextEditingController();
@@ -406,7 +407,6 @@ class BusesView extends StatelessWidget {
                                 ],
                               ),
                               GestureDetector(
-                                // --- UPDATED: Confirmation Dialog for toggling ---
                                 onTap: () {
                                   String actionText = isLive ? "deactivate" : "activate";
                                   _confirmAction(context, "Change Status", "Are you sure you want to $actionText this bus?", () {
@@ -439,7 +439,6 @@ class BusesView extends StatelessWidget {
                               Expanded(child: Text(data['route_name'] ?? 'No Route', style: const TextStyle(color: Colors.black87, fontSize: 14))),
                               IconButton(
                                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                // --- UPDATED: Confirmation Dialog for deleting ---
                                 onPressed: () {
                                   _confirmAction(context, "Delete Bus", "Are you sure you want to permanently delete ${data['bus_number']}?", () {
                                     FirebaseFirestore.instance.collection('active_trips').doc(doc.id).delete();
@@ -463,7 +462,7 @@ class BusesView extends StatelessWidget {
 }
 
 // ==========================================
-// 3. ROUTES VIEW
+// 3. ROUTES VIEW (WITH AUTO-GEOCODING)
 // ==========================================
 class RoutesView extends StatelessWidget {
   const RoutesView({Key? key}) : super(key: key);
@@ -492,11 +491,11 @@ class RoutesView extends StatelessWidget {
                 children: [
                   _buildTextField(noCtrl, 'Route Number (e.g. 170)'),
                   const SizedBox(height: 12),
-                  _buildTextField(nameCtrl, 'Full Name (e.g. 170 - Athurugiriya)'),
+                  _buildTextField(nameCtrl, 'Full Name (e.g. 170 Athurugiriya - Pettah)'),
                   const SizedBox(height: 12),
-                  _buildTextField(originCtrl, 'Origin City'),
+                  _buildTextField(originCtrl, 'Origin'),
                   const SizedBox(height: 12),
-                  _buildTextField(destCtrl, 'Destination City'),
+                  _buildTextField(destCtrl, 'Destination'),
                   const SizedBox(height: 12),
                   _buildTextField(citiesCtrl, 'Stops (comma separated)'),
                 ],
@@ -512,23 +511,47 @@ class RoutesView extends StatelessWidget {
                 onPressed: isSaving ? null : () async {
                   setState(() => isSaving = true);
                   
+                  const String apiKey = "AIzaSyBjeK2zWLVNjYMKe7_lJwf2P_cO4yvPCZs";
+                  
                   List<String> cities = citiesCtrl.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
                   
-                  if (noCtrl.text.isNotEmpty && nameCtrl.text.isNotEmpty) {
+                  if (noCtrl.text.isNotEmpty && nameCtrl.text.isNotEmpty && cities.isNotEmpty) {
                     List<Map<String, dynamic>> stopsData = [];
                     
                     for(String city in cities) {
                       var termQuery = await FirebaseFirestore.instance.collection('terminals').where('name', isEqualTo: city).limit(1).get();
+                      GeoPoint? cityLocation;
                       
                       if(termQuery.docs.isNotEmpty) {
-                        stopsData.add({
-                          'name': city,
-                          'location': termQuery.docs.first.get('location') 
-                        });
+                        cityLocation = termQuery.docs.first.get('location');
                       } else {
-                        stopsData.add({
-                          'name': city,
-                        });
+                        try {
+                          String searchQuery = city.toLowerCase().contains("bus") ? city : "$city Bus Stop";
+                          final url = 'https://maps.googleapis.com/maps/api/geocode/json?address=${Uri.encodeComponent("$searchQuery, Sri Lanka")}&key=$apiKey';
+                          
+                          final response = await http.get(Uri.parse(url));
+                          
+                          if (response.statusCode == 200) {
+                            final json = jsonDecode(response.body);
+                            if (json['status'] == 'OK' && json['results'].isNotEmpty) {
+                              var location = json['results'][0]['geometry']['location'];
+                              cityLocation = GeoPoint(location['lat'], location['lng']);
+                              
+                              await FirebaseFirestore.instance.collection('terminals').add({
+                                'name': city,
+                                'location': cityLocation,
+                              });
+                            }
+                          }
+                        } catch (e) {
+                          debugPrint("Geocoding failed for $city: $e");
+                        }
+                      }
+
+                      if (cityLocation != null) {
+                        stopsData.add({'name': city, 'location': cityLocation});
+                      } else {
+                        stopsData.add({'name': city}); 
                       }
                     }
 
@@ -540,7 +563,8 @@ class RoutesView extends StatelessWidget {
                       'cities_on_route': cities, 
                       'stops_data': stopsData, 
                     });
-                    Navigator.pop(context);
+                    
+                    if (context.mounted) Navigator.pop(context);
                   } else {
                     setState(() => isSaving = false);
                   }
@@ -643,7 +667,7 @@ class RoutesView extends StatelessWidget {
 }
 
 // ==========================================
-// 4. DRIVERS VIEW (WITH WORKING PHONE CALL)
+// 4. DRIVERS VIEW (WITH GHOST APP REGISTRATION)
 // ==========================================
 class DriversView extends StatelessWidget {
   const DriversView({Key? key}) : super(key: key);
@@ -654,51 +678,139 @@ class DriversView extends StatelessWidget {
     final nameCtrl = TextEditingController();
     final contactCtrl = TextEditingController();
     final busCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController(); 
+    final confirmPasswordCtrl = TextEditingController(); 
+
+    bool isCreating = false;
+    bool obscurePassword = true;
+    bool obscureConfirmPassword = true;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Add Driver', style: TextStyle(color: primaryBlue, fontWeight: FontWeight.bold)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                color: Colors.orange.shade50,
-                child: const Text("Note: Firebase Auth account must be created manually.", style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('Add Driver', style: TextStyle(color: primaryBlue, fontWeight: FontWeight.bold)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: emailCtrl, 
+                    decoration: InputDecoration(labelText: 'Email Address', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: nameCtrl, 
+                    decoration: InputDecoration(labelText: 'Username (No spaces)', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: passwordCtrl, 
+                    obscureText: obscurePassword, 
+                    decoration: InputDecoration(
+                      labelText: 'Initial Password (Min 6 chars)', 
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      suffixIcon: IconButton(
+                        icon: Icon(obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
+                        onPressed: () => setState(() => obscurePassword = !obscurePassword),
+                      ),
+                    )
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmPasswordCtrl, 
+                    obscureText: obscureConfirmPassword, 
+                    decoration: InputDecoration(
+                      labelText: 'Confirm Password', 
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      suffixIcon: IconButton(
+                        icon: Icon(obscureConfirmPassword ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
+                        onPressed: () => setState(() => obscureConfirmPassword = !obscureConfirmPassword),
+                      ),
+                    )
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: contactCtrl, 
+                    decoration: InputDecoration(labelText: 'Contact Number', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: busCtrl, 
+                    decoration: InputDecoration(labelText: 'Assigned Bus (e.g. NB-9988)', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              TextField(controller: emailCtrl, decoration: InputDecoration(labelText: 'Email Address', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
-              const SizedBox(height: 12),
-              TextField(controller: nameCtrl, decoration: InputDecoration(labelText: 'Full Name', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
-              const SizedBox(height: 12),
-              TextField(controller: contactCtrl, decoration: InputDecoration(labelText: 'Contact Number', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
-              const SizedBox(height: 12),
-              TextField(controller: busCtrl, decoration: InputDecoration(labelText: 'Assigned Bus (e.g. NB-9988)', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isCreating ? null : () => Navigator.pop(context), 
+                child: const Text('Cancel', style: TextStyle(color: Colors.grey))
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                onPressed: isCreating ? null : () async {
+                  if (passwordCtrl.text != confirmPasswordCtrl.text) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Passwords do not match.", style: TextStyle(color: Colors.white)), backgroundColor: Colors.red));
+                    return;
+                  }
+
+                  if (emailCtrl.text.isNotEmpty && passwordCtrl.text.length >= 6) {
+                    setState(() => isCreating = true);
+                    
+                    try {
+                      // 1. Initialize a temporary "Ghost" Firebase App
+                      FirebaseApp tempApp = await Firebase.initializeApp(
+                        name: 'TemporaryRegisterApp',
+                        options: Firebase.app().options,
+                      );
+
+                      // 2. Create the Auth account using the Ghost app
+                      UserCredential newDriverAuth = await FirebaseAuth.instanceFor(app: tempApp)
+                          .createUserWithEmailAndPassword(
+                              email: emailCtrl.text.trim(), 
+                              password: passwordCtrl.text.trim()
+                          );
+
+                      // 3. Grab the generated UID
+                      String newUid = newDriverAuth.user!.uid;
+
+                      // 4. Create the Firestore document using the exact UID
+                      await FirebaseFirestore.instance.collection('users').doc(newUid).set({
+                        'email': emailCtrl.text.trim(),
+                        'username': nameCtrl.text.trim(),
+                        'contact': contactCtrl.text.trim(),
+                        'assigned_bus': busCtrl.text.trim(),
+                        'role': 'driver',
+                      });
+
+                      // 5. Delete the Ghost app and close the dialog
+                      await tempApp.delete();
+                      
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Driver created successfully!", style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+                      }
+                    } catch (e) {
+                      setState(() => isCreating = false);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: ${e.toString()}"), backgroundColor: Colors.red));
+                      }
+                    }
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields and ensure password is 6+ chars.")));
+                  }
+                },
+                child: isCreating 
+                  ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text('Save Driver', style: TextStyle(color: Colors.white)),
+              )
             ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-            onPressed: () {
-              if (emailCtrl.text.isNotEmpty) {
-                FirebaseFirestore.instance.collection('users').add({
-                  'email': emailCtrl.text.trim(),
-                  'username': nameCtrl.text.trim(),
-                  'contact': contactCtrl.text.trim(),
-                  'assigned_bus': busCtrl.text.trim(),
-                  'role': 'driver',
-                });
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Save Driver', style: TextStyle(color: Colors.white)),
-          )
-        ],
+          );
+        }
       )
     );
   }
@@ -712,14 +824,11 @@ class DriversView extends StatelessWidget {
     final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     
     try {
-      // By skipping the 'canLaunchUrl()' check, we bypass the Android 11 security block
-      // and force the phone's OS to open the dialer directly!
       await launchUrl(launchUri); 
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to open dialer.")));
     }
   }
-  // ---------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -784,7 +893,6 @@ class DriversView extends StatelessWidget {
                         ),
                         IconButton(
                           icon: const Icon(Icons.phone, color: Colors.green),
-                          // --- UPDATED: Call driver function ---
                           onPressed: () => _callDriver(context, data['contact'] ?? ''),
                         )
                       ],
@@ -801,7 +909,7 @@ class DriversView extends StatelessWidget {
 }
 
 // ==========================================
-// 5. FEEDBACK VIEW (Bulletproof Version)
+// 5. FEEDBACK VIEW
 // ==========================================
 class FeedbackView extends StatelessWidget {
   const FeedbackView({Key? key}) : super(key: key);
@@ -837,7 +945,6 @@ class FeedbackView extends StatelessWidget {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            // REMOVED .orderBy() so Firestore doesn't crash on missing indexes
             stream: FirebaseFirestore.instance.collection('feedbacks').snapshots(),
             builder: (context, snapshot) {
               
@@ -855,7 +962,6 @@ class FeedbackView extends StatelessWidget {
                 );
               }
 
-              // Sort the data in Dart instead of Firebase to prevent crashes!
               var docs = snapshot.data!.docs;
               docs.sort((a, b) {
                 var aData = a.data() as Map<String, dynamic>;
