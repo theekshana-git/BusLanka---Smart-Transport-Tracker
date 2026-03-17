@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // ADDED FIRESTORE IMPORT
 
 class FeedbackPage extends StatelessWidget {
   FeedbackPage({super.key});
@@ -83,7 +84,7 @@ class FeedbackPage extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 25),
                       child: TextField(
                         controller: nameController,
-                        decoration: _inputDecoration("Your Name", 25),
+                        decoration: _inputDecoration("Your Name (Optional)", 25),
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -105,23 +106,66 @@ class FeedbackPage extends StatelessWidget {
                       height: 55,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(
-                            0xFF002D72,
-                          ), // Deeper blue like image
+                          backgroundColor: const Color(0xFF002D72), 
                           foregroundColor: Colors.white,
                           elevation: 4,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(30),
                           ),
                         ),
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                "Thank you ${nameController.text}!",
+                        // --- UPDATED DATABASE LOGIC HERE ---
+                        onPressed: () async {
+                          String name = nameController.text.trim();
+                          String feedback = feedbackController.text.trim();
+
+                          // 1. Check if feedback is empty
+                          if (feedback.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Please enter a message first!"),
+                                backgroundColor: Colors.orange,
                               ),
-                            ),
-                          );
+                            );
+                            return;
+                          }
+
+                          // 2. If name is empty, set as Anonymous
+                          if (name.isEmpty) {
+                            name = "Anonymous";
+                          }
+
+                          try {
+                            // 3. Send to Firestore
+                            await FirebaseFirestore.instance.collection('feedbacks').add({
+                              'name': name,
+                              'message': feedback,
+                              'timestamp': FieldValue.serverTimestamp(),
+                            });
+
+                            // 4. Clear the text fields
+                            nameController.clear();
+                            feedbackController.clear();
+
+                            // 5. Show Success Message
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text("Feedback submitted successfully! Thank you."),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            // Catch any database errors
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text("Error submitting feedback: $e"),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
                         },
                         child: const Text(
                           "Submit Feedback",

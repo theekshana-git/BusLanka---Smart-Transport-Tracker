@@ -24,10 +24,6 @@ class _DriverDashboardState extends State<DriverDashboard> {
   StreamSubscription<Position>? _positionStream;
   late PolylinePoints polylinePoints;
   
-  // --- Inactivity Feature Addition ---
-  Timer? _inactivityTimer;
-  // ------------------------------------
-
   bool _isTripLive = false;
   bool _isLocating = true;
   String? _assignedBusNumber;
@@ -40,6 +36,8 @@ class _DriverDashboardState extends State<DriverDashboard> {
   LatLng _currentPos = const LatLng(6.9271, 79.8612); 
   double _heading = 0.0;
   BitmapDescriptor? busIcon;
+  
+  double _currentZoom = 14.0; 
 
   final Map<PolylineId, Polyline> _polylines = {};
   final Map<MarkerId, Marker> _markers = {};
@@ -48,7 +46,7 @@ class _DriverDashboardState extends State<DriverDashboard> {
   void initState() {
     super.initState();
     polylinePoints = PolylinePoints(apiKey: googleApiKey);
-    _loadBusIcon();
+    _updateBusIcon(_currentZoom); 
     _fetchDriverData();
     _initLocationSequence(); 
   }
@@ -56,33 +54,33 @@ class _DriverDashboardState extends State<DriverDashboard> {
   @override
   void dispose() {
     _positionStream?.cancel();
-    _inactivityTimer?.cancel(); // Clean up timer
     super.dispose();
   }
 
-  // --- Inactivity Logic ---
-  void _resetInactivityTimer() {
-    _inactivityTimer?.cancel();
-    // Set to 10 minutes as per requirements
-    _inactivityTimer = Timer(const Duration(minutes: 3), () {
-      if (_isTripLive && mounted) {
-        _toggleTrip(); // Automatically end the trip
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Trip ended automatically due to 10 minutes of inactivity."),
-            backgroundColor: inactiveRed,
-          ),
-        );
-      }
-    });
-  }
-  // -------------------------
+  Future<void> _updateBusIcon(double zoom) async {
+    double baseWidth;
+    
+    if (zoom >= 16) {
+      baseWidth = 45.0; 
+    } else if (zoom >= 14) {
+      baseWidth = 35.0; 
+    } else if (zoom >= 12) {
+      baseWidth = 25.0; 
+    } else {
+      baseWidth = 15.0; 
+    }
 
-  Future<void> _loadBusIcon() async {
-    busIcon = await BitmapDescriptor.asset(
-      const ImageConfiguration(size: Size(35, 70)), 
-      'assets/bus_marker.png'
+    final newIcon = await BitmapDescriptor.asset(
+      ImageConfiguration(size: Size(baseWidth, baseWidth * 2)),
+      'assets/bus_marker.png',
     );
+
+    if (mounted) {
+      setState(() {
+        busIcon = newIcon;
+        _updateBusMarker(); 
+      });
+    }
   }
 
   Future<void> _initLocationSequence() async {
@@ -95,7 +93,7 @@ class _DriverDashboardState extends State<DriverDashboard> {
       if (mounted) {
         setState(() => _isLocating = false);
         mapController?.animateCamera(
-          CameraUpdate.newLatLngZoom(_currentPos, 15),
+          CameraUpdate.newLatLngZoom(_currentPos, _currentZoom),
         );
       }
     } catch (e) {
@@ -129,6 +127,11 @@ class _DriverDashboardState extends State<DriverDashboard> {
         var doc = querySnap.docs.first;
         bool statusIsLive = doc.data()['status'] == 'live';
         
+        // --- ADDED: Logic to prevent Google Maps API Spam ---
+        bool wasLive = _isTripLive; 
+        String previousCity = _busData?['current_city'] ?? "";
+        String newCity = doc.data()['current_city'] ?? "";
+        
         setState(() {
           _busData = doc.data();
           _actualDocId = doc.id; 
@@ -137,9 +140,15 @@ class _DriverDashboardState extends State<DriverDashboard> {
         });
 
         if (_isTripLive) {
-          _startLocationUpdates();
-          _drawRouteToDestination();
-        } else {
+          if (!wasLive) {
+            // Just turned live: start tracking and draw the initial route
+            _startLocationUpdates();
+            _drawRouteToDestination();
+          } else if (previousCity != newCity) {
+            // Already live, but reached a new city: recalculate the remaining route!
+            _drawRouteToDestination(); 
+          }
+        } else if (!_isTripLive && wasLive) {
           _stopTripCleanup();
         }
       }
@@ -203,7 +212,9 @@ class _DriverDashboardState extends State<DriverDashboard> {
 
     String finalDest = isInbound ? source['origin'] : source['destination'];
     String finalOrigin = isInbound ? source['destination'] : source['origin'];
-    String directionStr = isInbound ? "inbound" : "outbound";
+    
+    // --- UPDATED: Flipped logic based on your requirements ---
+    String directionStr = isInbound ? "outbound" : "inbound"; 
     
     List<dynamic> stops = List.from(source['cities_on_route'] ?? []);
     if (isInbound) stops = stops.reversed.toList();
@@ -226,11 +237,18 @@ class _DriverDashboardState extends State<DriverDashboard> {
     try {
       _routeCityCoordinates.clear();
       var termSnap = await FirebaseFirestore.instance.collection('terminals').get();
+      
       for (var doc in termSnap.docs) {
-        String name = doc.get('name');
-        if (stops.contains(name)) {
+        String dbName = doc.get('name');
+        
+        var exactRouteName = stops.firstWhere(
+          (s) => s.toString().toLowerCase().trim() == dbName.toLowerCase().trim(), 
+          orElse: () => ""
+        );
+
+        if (exactRouteName.toString().isNotEmpty) {
           GeoPoint gp = doc.get('location');
-          _routeCityCoordinates[name] = LatLng(gp.latitude, gp.longitude);
+          _routeCityCoordinates[exactRouteName.toString()] = LatLng(gp.latitude, gp.longitude);
         }
       }
     } catch (e) {
@@ -239,7 +257,8 @@ class _DriverDashboardState extends State<DriverDashboard> {
   }
 
   void _checkAndUpdateCity(Position pos) {
-    if (_routeCityCoordinates.isEmpty) return;
+    if (_routeCityCoordinates.isEmpty || _busData == null) return;
+    
     String? detectedCity;
     double minDistance = 500.0; 
 
@@ -248,15 +267,27 @@ class _DriverDashboardState extends State<DriverDashboard> {
         pos.latitude, pos.longitude, cityLatLng.latitude, cityLatLng.longitude
       );
       if (distance < minDistance) {
+        minDistance = distance;
         detectedCity = cityName;
       }
     });
 
     if (detectedCity != null && detectedCity != _busData?['current_city']) {
-      FirebaseFirestore.instance.collection('active_trips').doc(_actualDocId).update({
-        'current_city': detectedCity,
-        'last_update': FieldValue.serverTimestamp(),
-      });
+      List<dynamic> routeCities = _busData?['cities_on_route'] ?? [];
+      
+      int currentIndex = routeCities.indexWhere((c) => c.toString() == _busData?['current_city']);
+      int detectedIndex = routeCities.indexWhere((c) => c.toString() == detectedCity);
+
+      if (detectedIndex > currentIndex || currentIndex == -1) {
+        FirebaseFirestore.instance.collection('active_trips').doc(_actualDocId).update({
+          'current_city': detectedCity,
+          'last_update': FieldValue.serverTimestamp(),
+        });
+        
+        setState(() {
+          _busData?['current_city'] = detectedCity;
+        });
+      }
     }
   }
 
@@ -293,10 +324,6 @@ class _DriverDashboardState extends State<DriverDashboard> {
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10),
     ).listen((pos) {
       if (_actualDocId != null && _isTripLive) {
-        // --- Reset Timeout Timer on every new location ---
-        _resetInactivityTimer();
-        // -------------------------------------------------
-
         if (mounted) {
           setState(() {
             _currentPos = LatLng(pos.latitude, pos.longitude);
@@ -311,6 +338,7 @@ class _DriverDashboardState extends State<DriverDashboard> {
           'speed': (pos.speed * 3.6).round(),
           'last_update': FieldValue.serverTimestamp(),
         });
+        
         _checkAndUpdateCity(pos);
       }
     });
@@ -318,7 +346,6 @@ class _DriverDashboardState extends State<DriverDashboard> {
 
   void _stopTripCleanup() {
     _positionStream?.cancel();
-    _inactivityTimer?.cancel(); // Stop monitoring inactivity when trip ends
     _routeCityCoordinates.clear();
     if (mounted) {
       setState(() {
@@ -328,6 +355,9 @@ class _DriverDashboardState extends State<DriverDashboard> {
     }
   }
 
+  // =========================================================
+  // --- UPDATED: WAYPOINTS ADDED TO MATCH PASSENGER APP   ---
+  // =========================================================
   Future<void> _drawRouteToDestination() async {
     if (_busData == null || _busData!['destination'] == null) return;
     try {
@@ -340,11 +370,33 @@ class _DriverDashboardState extends State<DriverDashboard> {
         GeoPoint gp = termQuery.docs.first.get('location');
         LatLng dest = LatLng(gp.latitude, gp.longitude);
 
+        // --- NEW: Slicing the waypoints dynamically ---
+        List<PolylineWayPoint> routeWaypoints = [];
+        List<dynamic> routeCities = _busData!['cities_on_route'] ?? [];
+        
+        int currentIndex = routeCities.indexWhere((c) => c.toString().toLowerCase() == (_busData!['current_city'] ?? "").toString().toLowerCase());
+        int targetIndex = routeCities.indexWhere((c) => c.toString().toLowerCase() == _busData!['destination'].toString().toLowerCase());
+
+        if (currentIndex == -1) currentIndex = 0; 
+        if (targetIndex == -1) targetIndex = routeCities.length - 1;
+
+        if (currentIndex < targetIndex) {
+          List<dynamic> remainingStops = routeCities.sublist(currentIndex + 1, targetIndex);
+          
+          for (var city in remainingStops) {
+            String cityName = city.toString();
+            String query = cityName.toLowerCase().contains("bus") ? cityName : "$cityName Bus Stop";
+            routeWaypoints.add(PolylineWayPoint(location: "$query, Sri Lanka"));
+          }
+        }
+        // ----------------------------------------------
+
         PolylineResult res = await polylinePoints.getRouteBetweenCoordinates(
           request: PolylineRequest(
             origin: PointLatLng(_currentPos.latitude, _currentPos.longitude),
             destination: PointLatLng(dest.latitude, dest.longitude),
             mode: TravelMode.driving,
+            wayPoints: routeWaypoints, // Injecting the sliced waypoints
           ),
         );
 
@@ -424,13 +476,19 @@ class _DriverDashboardState extends State<DriverDashboard> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(24),
                 child: GoogleMap(
-                  initialCameraPosition: CameraPosition(target: _currentPos, zoom: 14),
+                  initialCameraPosition: CameraPosition(target: _currentPos, zoom: _currentZoom),
                   onMapCreated: (c) => mapController = c,
                   markers: Set.of(_markers.values),
                   polylines: Set.of(_polylines.values),
                   myLocationEnabled: true,
                   myLocationButtonEnabled: false,
                   zoomControlsEnabled: false,
+                  onCameraMove: (position) {
+                    if (position.zoom.round() != _currentZoom.round()) {
+                      _currentZoom = position.zoom;
+                      _updateBusIcon(_currentZoom);
+                    }
+                  },
                 ),
               ),
               Positioned(
