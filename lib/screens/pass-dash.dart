@@ -305,14 +305,47 @@ class _PassengerPageState extends State<PassengerPage> {
     return await Geolocator.getCurrentPosition();
   }
 
+  // ==========================================
+  // UPDATED: Real ETA Calculation with Fallback Logic
+  // ==========================================
   Future<Map<String, String>> _getRouteData(
     BusTrip bus,
     LatLng userLatLng,
     LatLng targetLatLng,
   ) async {
-    // utilize the same logic as the dynamic status to provide a more accurate ETA and status in the popup
+    // 1. Calculate Status: Is the bus approaching the USER?
     String status = _getDynamicStatus(bus.location, bus.heading, userLatLng);
-    String eta = "--";
+
+    // 2. Calculate ETA: How long until the bus reaches its DESTINATION?
+    double distanceToDestMeters = Geolocator.distanceBetween(
+      bus.location.latitude,
+      bus.location.longitude,
+      targetLatLng.latitude,
+      targetLatLng.longitude,
+    );
+
+    // Convert distance to kilometers
+    double distanceKm = distanceToDestMeters / 1000.0;
+
+    // 3. Speed Fallback Logic
+    // If the bus is stopped at a light (speed < 5 km/h), use an average city speed of 25 km/h. 
+    // Otherwise, use the bus's actual live GPS speed.
+    double activeSpeed = bus.speed > 5.0 ? bus.speed : 25.0;
+
+    // 4. Calculate time: Time (hours) = Distance / Speed. Multiply by 60 for minutes.
+    int etaMinutes = ((distanceKm / activeSpeed) * 60).ceil();
+
+    // 5. Format the output string securely
+    String eta;
+    if (distanceToDestMeters < 100) {
+      eta = "Arriving"; // If it is within 100 meters of the terminal
+    } else if (etaMinutes <= 0) {
+      eta = "Now";
+    } else if (etaMinutes > 180) {
+      eta = "Calculating..."; // Failsafe if GPS glitches and throws a massive distance
+    } else {
+      eta = "$etaMinutes mins";
+    }
 
     return {"status": status, "eta": eta};
   }
