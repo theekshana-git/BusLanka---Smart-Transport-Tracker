@@ -20,7 +20,7 @@ class FeedbackPage extends StatelessWidget {
         toolbarHeight: 80,
         automaticallyImplyLeading: false,
 
-        /// --- APP BAR LOGO & TEXT ---
+        // app bar
         title: Row(
           children: [
             Image.asset(
@@ -51,7 +51,7 @@ class FeedbackPage extends StatelessWidget {
           ],
         ),
         actions: [
-          /// --- CLEAN LOGOUT BUTTON ---
+          // logout button
           IconButton(
             onPressed: () => Navigator.pop(context),
             icon: const Icon(Icons.logout, color: Colors.white, size: 26),
@@ -79,17 +79,20 @@ class FeedbackPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 30),
 
-                    /// NAME FIELD
+                    // field for name
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 25),
                       child: TextField(
                         controller: nameController,
-                        decoration: _inputDecoration("Your Name (Optional)", 25),
+                        decoration: _inputDecoration(
+                          "Your Name (Optional)",
+                          25,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 20),
 
-                    /// FEEDBACK FIELD
+                    // field for feedback
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 25),
                       child: TextField(
@@ -100,25 +103,25 @@ class FeedbackPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 35),
 
-                    /// SUBMIT BUTTON
+                    // submit button
                     SizedBox(
                       width: 240,
                       height: 55,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF002D72), 
+                          backgroundColor: const Color(0xFF002D72),
                           foregroundColor: Colors.white,
                           elevation: 4,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(30),
                           ),
                         ),
-                        // --- UPDATED DATABASE LOGIC HERE ---
+                        // feedback submission logic
                         onPressed: () async {
                           String name = nameController.text.trim();
                           String feedback = feedbackController.text.trim();
 
-                          // 1. Check if feedback is empty
+                          // Check if feedback is empty
                           if (feedback.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -129,28 +132,32 @@ class FeedbackPage extends StatelessWidget {
                             return;
                           }
 
-                          // 2. If name is empty, set as Anonymous
+                          // If name is empty, set as Anonymous
                           if (name.isEmpty) {
                             name = "Anonymous";
                           }
 
                           try {
-                            // 3. Send to Firestore
-                            await FirebaseFirestore.instance.collection('feedbacks').add({
-                              'name': name,
-                              'message': feedback,
-                              'timestamp': FieldValue.serverTimestamp(),
-                            });
+                            // Send feedback data to Firestore database
+                            await FirebaseFirestore.instance
+                                .collection('feedbacks')
+                                .add({
+                                  'name': name,
+                                  'message': feedback,
+                                  'timestamp': FieldValue.serverTimestamp(),
+                                });
 
-                            // 4. Clear the text fields
+                            // Clear the text fields
                             nameController.clear();
                             feedbackController.clear();
 
-                            // 5. Show Success Message
+                            // Show Success Message
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text("Feedback submitted successfully! Thank you."),
+                                  content: Text(
+                                    "Feedback submitted successfully! Thank you.",
+                                  ),
                                   backgroundColor: Colors.green,
                                 ),
                               );
@@ -160,7 +167,9 @@ class FeedbackPage extends StatelessWidget {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text("Error submitting feedback: $e"),
+                                  content: Text(
+                                    "Error submitting feedback: $e",
+                                  ),
                                   backgroundColor: Colors.red,
                                 ),
                               );
@@ -177,11 +186,11 @@ class FeedbackPage extends StatelessWidget {
                       ),
                     ),
 
-                    // Fills space to push the About section to the bottom
+                    // fills space to push the about us to the bottom
                     const Spacer(),
                     const SizedBox(height: 50),
 
-                    /// ABOUT US CONTAINER
+                    // about us
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.fromLTRB(30, 45, 30, 60),
@@ -219,7 +228,7 @@ class FeedbackPage extends StatelessWidget {
     );
   }
 
-  /// Reusable InputDecoration for the text fields
+  // reusable info row widget for contact details
   InputDecoration _inputDecoration(String hint, double radius) {
     return InputDecoration(
       hintText: hint,

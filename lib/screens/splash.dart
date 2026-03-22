@@ -20,18 +20,17 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _handleStartup() async {
-    // 1. Show splash screen for 3 seconds
+    // Show splash screen for 3 seconds
     await Future.delayed(const Duration(seconds: 3));
 
-    // 2. FORCE LOGOUT: This fixes your "always logged in" issue
-    // Every time the app starts, we clear the previous session.
+    //force log out to ensure a fresh start on every app launch
     if (FirebaseAuth.instance.currentUser != null) {
       await FirebaseAuth.instance.signOut();
     }
 
     if (!mounted) return;
 
-    // 3. Always navigate to role selection for a fresh start
+    // Always navigate to role selection for a fresh start
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const SelectRolePage()),

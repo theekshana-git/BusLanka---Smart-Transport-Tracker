@@ -5,7 +5,7 @@ import 'package:buslanka/screens/pass-dash.dart';
 class SelectRolePage extends StatelessWidget {
   const SelectRolePage({super.key});
 
-  // Define the primary dark blue color used throughout the design
+  // Define primary color  variable for reuseability
   static const Color primaryBlue = Color(0xFF112D75);
 
   @override
@@ -105,10 +105,8 @@ class SelectRolePage extends StatelessWidget {
         backgroundColor: primaryBlue,
         foregroundColor: Colors.white,
         elevation: 0,
-        minimumSize: const Size(280, 65), // Wide and tall buttons
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20), // Rounded corners
-        ),
+        minimumSize: const Size(280, 65),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
       child: Text(
         title,

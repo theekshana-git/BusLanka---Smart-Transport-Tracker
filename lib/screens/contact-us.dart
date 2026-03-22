@@ -11,16 +11,17 @@ class ContactUsPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.white,
 
-      /// --- MATCHED APP BAR WITH WHITE ICON LOGOUT ---
+      // top bar
       appBar: AppBar(
         backgroundColor: primaryBlue,
         elevation: 0,
         toolbarHeight: 80,
         automaticallyImplyLeading: false,
         title: _appBarTitle(),
-        actions: [_logoutButton(context)], // Updated method
+        actions: [_logoutButton(context)],
       ),
-      // Column approach maintains top-down layout
+
+      // main content
       body: Column(
         children: [
           Expanded(
@@ -29,7 +30,7 @@ class ContactUsPage extends StatelessWidget {
                 children: [
                   const SizedBox(height: 30),
 
-                  /// --- CONTACT INFO CARD ---
+                  // contact card
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 25),
                     child: Container(
@@ -60,29 +61,32 @@ class ContactUsPage extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 40),
+
                           _contactDetail("Phone number", "+94 71 xxx xxxx"),
                           const SizedBox(height: 25),
+
                           _contactDetail("Email", "xxxxxxx@mail.com"),
                           const SizedBox(height: 25),
+
                           _contactDetail("Location", "Company location"),
                         ],
                       ),
                     ),
                   ),
-                  // Extra space at bottom of scrollable area
+
                   const SizedBox(height: 30),
                 ],
               ),
             ),
           ),
 
-          // --- FOOTER REMOVED FROM HERE ---
+          // footer removed
         ],
       ),
     );
   }
 
-  /// Helper for the contact info rows
+  // small helper for contact rows
   Widget _contactDetail(String title, String value) {
     return SizedBox(
       width: double.infinity,
@@ -107,7 +111,7 @@ class ContactUsPage extends StatelessWidget {
     );
   }
 
-  /// --- APP BAR UI COMPONENTS ---
+  // app bar layout
   Widget _appBarTitle() {
     return Row(
       children: [
@@ -140,16 +144,11 @@ class ContactUsPage extends StatelessWidget {
     );
   }
 
-  /// --- UPDATED: White Icon Only Logout Button ---
+  // logout button
   Widget _logoutButton(BuildContext context) {
     return IconButton(
-      // Padding matches typical feedback page alignment
       padding: const EdgeInsets.only(right: 20),
-      icon: const Icon(
-        Icons.logout,
-        color: Colors.white, // Setting icon to white
-        size: 26, // Adjusting size to be prominent
-      ),
+      icon: const Icon(Icons.logout, color: Colors.white, size: 26),
       onPressed: () => Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (c) => const SelectRolePage()),
