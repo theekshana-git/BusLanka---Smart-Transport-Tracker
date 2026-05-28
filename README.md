@@ -9,7 +9,11 @@
 ---
 
 ## 📸 Application Preview
-*(Drag and drop application screenshots here in the GitHub web editor)*
+<img width="369" height="800" alt="image" src="https://github.com/user-attachments/assets/1df2032e-078a-4369-a003-fcd5f1af7295" />
+<img width="369" height="800" alt="image" src="https://github.com/user-attachments/assets/20fac7a0-fa63-47f6-be53-63e3cc9f8f69" />
+
+
+
 
 ## 🚀 Key Features
 * **Real-Time GPS Telemetry:** Live spatial tracking of transit vehicles using Firebase Realtime Database.
